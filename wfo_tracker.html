@@ -126,6 +126,7 @@
             <button class="btn tab-btn" id="tabSummary" onclick="switchTab('summary')" style="background:#7b1fa2;color:#fff;">📊 WFO Summary</button>
             <button class="btn tab-btn" id="tabOccupancy" onclick="switchTab('occupancy')" style="background:#00695c;color:#fff;">📈 Office Occupancy %</button>
             <button class="btn tab-btn" id="tabImport" style="display:none;background:#f57c00;color:#fff;" onclick="switchTab('upload')">📁 Import Schedule</button>
+            <button class="btn tab-btn" id="tabAttendance" onclick="switchTab('attendance')" style="background:#d32f2f;color:#fff;">⏰ Import Attendance</button>
             <button class="btn tab-btn" id="btnCopySchedule" style="display:none;background:#00897b;color:#fff;" onclick="copyScheduleToClipboard()">📋 Export Schedule</button>
         </div>
 
@@ -162,6 +163,36 @@
                 <div class="schedule-wrap">
                     <table id="occupancyTable" style="min-width:auto;border-spacing:0;"><tbody></tbody></table>
                 </div>
+            </div>
+        </div>
+
+        <!-- ATTENDANCE IMPORT PANEL -->
+        <div id="panel-attendance" class="panel">
+            <div style="background:#16213e; border-radius:8px; padding:20px; margin-bottom:20px;">
+                <h3 style="color:#4fc3f7; margin-bottom:10px;">⏰ Import Attendance (Clock-In Data)</h3>
+                <p style="color:#aaa; font-size:0.85rem; margin-bottom:15px;">Upload a CSV or Excel file exported from PayrollHero (or similar). The system will match employee names and dates, then automatically mark WFO shifts.</p>
+                <div style="background:#0f3460; border-left:4px solid #4fc3f7; padding:12px 18px; border-radius:6px; margin-bottom:15px;">
+                    <p style="color:#eee; font-size:0.8rem; margin-bottom:8px;"><strong style="color:#4fc3f7;">Expected format:</strong></p>
+                    <p style="color:#aaa; font-size:0.75rem;">CSV/Excel with columns: <strong>Employee Name</strong>, <strong>Date</strong>, <strong>Clock In</strong> (time or location)</p>
+                    <p style="color:#aaa; font-size:0.75rem; margin-top:4px;">Or any file with columns containing employee names and dates. The system auto-detects columns.</p>
+                </div>
+                <div class="upload-area" id="attendanceUploadArea" onclick="document.getElementById('attendanceFileInput').click()" style="margin-bottom:15px;">
+                    <h3>📂 Drop Attendance File Here</h3>
+                    <p>Click to select .csv, .xlsx, or .xls file</p>
+                </div>
+                <input type="file" id="attendanceFileInput" accept=".csv,.xlsx,.xls" onchange="handleAttendanceUpload(event)" style="display:none;">
+                <div id="attendancePreview" style="display:none; margin-top:15px;">
+                    <h4 style="color:#4fc3f7; margin-bottom:10px;">Preview - Detected Clock-Ins</h4>
+                    <div style="margin-bottom:10px; display:flex; gap:10px; align-items:center;">
+                        <span style="color:#aaa; font-size:0.8rem;" id="attendanceMatchInfo"></span>
+                        <button class="btn btn-success btn-sm" onclick="confirmAttendanceImport()">✓ Confirm & Apply WFO</button>
+                        <button class="btn btn-danger btn-sm" onclick="cancelAttendanceImport()">✗ Cancel</button>
+                    </div>
+                    <div class="schedule-wrap" style="max-height:400px; overflow-y:auto;">
+                        <table id="attendancePreviewTable" style="min-width:auto; font-size:0.75rem;"><tbody></tbody></table>
+                    </div>
+                </div>
+                <p id="attendanceStatus" style="margin-top:15px; color:#66bb6a;"></p>
             </div>
         </div>
 
@@ -649,6 +680,7 @@
         else if (tab === 'summary') document.getElementById('tabSummary').classList.add('active');
         else if (tab === 'occupancy') document.getElementById('tabOccupancy').classList.add('active');
         else if (tab === 'upload') document.getElementById('tabImport').classList.add('active');
+        else if (tab === 'attendance') document.getElementById('tabAttendance').classList.add('active');
         if (tab === 'summary') renderSummary();
         if (tab === 'occupancy') renderOccupancy();
     }
@@ -1406,6 +1438,252 @@
         };
         reader.readAsArrayBuffer(file);
     }
+
+    // ============================================================
+    // ATTENDANCE IMPORT (CSV/Excel from PayrollHero)
+    // ============================================================
+    let pendingAttendanceData = []; // { employee, date, clockIn }
+
+    function handleAttendanceUpload(event) {
+        const file = event.target.files[0];
+        if (!file) return;
+        const statusEl = document.getElementById('attendanceStatus');
+        statusEl.textContent = 'Processing...';
+        statusEl.style.color = '#4fc3f7';
+
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            let rows = [];
+            if (file.name.match(/\.csv$/i)) {
+                const text = new TextDecoder().decode(new Uint8Array(e.target.result));
+                rows = parseCSV(text);
+            } else {
+                const data = new Uint8Array(e.target.result);
+                const workbook = XLSX.read(data, { type: 'array', cellDates: true });
+                const sheet = workbook.Sheets[workbook.SheetNames[0]];
+                rows = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: false, dateNF: 'dd/mm/yyyy' });
+            }
+
+            if (rows.length < 2) {
+                statusEl.textContent = 'No data found in file.';
+                statusEl.style.color = '#ef5350';
+                return;
+            }
+
+            // Auto-detect columns: find name col, date col, clock-in col
+            const header = rows[0].map(h => (h || '').toString().toLowerCase().trim());
+            let nameCol = -1, dateCol = -1, clockCol = -1;
+
+            for (let i = 0; i < header.length; i++) {
+                const h = header[i];
+                if (nameCol === -1 && (h.includes('name') || h.includes('employee') || h.includes('staff') || h.includes('person'))) nameCol = i;
+                else if (dateCol === -1 && (h.includes('date') || h.includes('day') || h.includes('shift'))) dateCol = i;
+                else if (clockCol === -1 && (h.includes('clock') || h.includes('time in') || h.includes('in time') || h.includes('check in') || h.includes('punch') || h.includes('arrival'))) clockCol = i;
+            }
+
+            // Fallback: if no header match, try first few columns
+            if (nameCol === -1 || dateCol === -1) {
+                // Try to detect by content in row 1
+                for (let i = 0; i < Math.min(10, (rows[1] || []).length); i++) {
+                    const val = (rows[1][i] || '').toString().trim();
+                    if (nameCol === -1 && val.length > 3 && !val.match(/^\d/) && val.includes(' ')) nameCol = i;
+                    else if (dateCol === -1 && isDateLike(val)) dateCol = i;
+                }
+            }
+
+            if (nameCol === -1 || dateCol === -1) {
+                statusEl.textContent = 'Could not detect Employee Name and Date columns. Please ensure headers include "Name" and "Date".';
+                statusEl.style.color = '#ef5350';
+                return;
+            }
+
+            // Parse attendance records
+            pendingAttendanceData = [];
+            const nameCorrections = getNameCorrections();
+            let matched = 0, unmatched = 0;
+
+            for (let r = 1; r < rows.length; r++) {
+                const row = rows[r];
+                if (!row || !row[nameCol] || !row[dateCol]) continue;
+
+                let empName = (row[nameCol] || '').toString().trim();
+                const dateVal = parseFlexDate((row[dateCol] || '').toString().trim());
+                const clockIn = clockCol >= 0 ? (row[clockCol] || '').toString().trim() : 'Present';
+
+                if (!dateVal || isNaN(dateVal.getTime())) continue;
+                if (dateVal.getFullYear() !== 2026) continue;
+
+                // Match employee name
+                const resolvedName = resolveEmployeeName(empName, nameCorrections);
+                if (resolvedName) {
+                    pendingAttendanceData.push({ employee: resolvedName, date: dateVal, clockIn: clockIn, original: empName });
+                    matched++;
+                } else {
+                    pendingAttendanceData.push({ employee: null, date: dateVal, clockIn: clockIn, original: empName });
+                    unmatched++;
+                }
+            }
+
+            if (pendingAttendanceData.length === 0) {
+                statusEl.textContent = 'No valid attendance records found for 2026.';
+                statusEl.style.color = '#ef5350';
+                return;
+            }
+
+            // Show preview
+            document.getElementById('attendanceMatchInfo').textContent = `${matched} matched, ${unmatched} unmatched out of ${pendingAttendanceData.length} records`;
+            renderAttendancePreview();
+            document.getElementById('attendancePreview').style.display = 'block';
+            statusEl.textContent = '';
+        };
+        reader.readAsArrayBuffer(file);
+    }
+
+    function resolveEmployeeName(name, corrections) {
+        if (!name) return null;
+        // Direct match in schedule employees
+        for (const monthKey of Object.keys(scheduleData)) {
+            if (scheduleData[monthKey].employees.includes(name)) return name;
+        }
+        // Try corrections
+        if (corrections[name]) return corrections[name];
+        if (corrections[name.toLowerCase()]) return corrections[name.toLowerCase()];
+        // Try first name
+        const firstName = name.split(' ')[0];
+        if (corrections[firstName]) return corrections[firstName];
+        // Try last name, first name format (e.g., "Curtis, Joshua")
+        if (name.includes(',')) {
+            const parts = name.split(',').map(s => s.trim());
+            const flipped = parts[1] + ' ' + parts[0];
+            if (corrections[flipped]) return corrections[flipped];
+            if (corrections[flipped.toLowerCase()]) return corrections[flipped.toLowerCase()];
+            // Try just first name from flipped
+            if (corrections[parts[1]]) return corrections[parts[1]];
+        }
+        return null;
+    }
+
+    function getNameCorrections() {
+        return {
+            "Joshua": "Joshua Curtis", "Josh": "Joshua Curtis", "joshua curtis": "Joshua Curtis", "joshua": "Joshua Curtis", "Curtis, Joshua": "Joshua Curtis",
+            "Nico": "Nico Dabon", "nico dabon": "Nico Dabon", "Dabon, Nico": "Nico Dabon",
+            "Carlo": "Carlo Santia", "carlo santia": "Carlo Santia", "Santia, Carlo": "Carlo Santia",
+            "RK": "RK Malabrigo", "rk malabrigo": "RK Malabrigo", "Malabrigo, RK": "RK Malabrigo",
+            "Alfred": "Alfred Alegria", "alfred alegria": "Alfred Alegria", "Alegria, Alfred": "Alfred Alegria",
+            "Mikko": "Mikko Dumdum", "mikko dumdum": "Mikko Dumdum", "Dumdum, Mikko": "Mikko Dumdum",
+            "Chester": "Chester Rabino", "chester rabino": "Chester Rabino", "Rabino, Chester": "Chester Rabino",
+            "Alexander": "Alexander Tan", "alexander tan": "Alexander Tan", "Tan, Alexander": "Alexander Tan",
+            "Roman": "Roman Paco", "roman paco": "Roman Paco", "Paco, Roman": "Roman Paco",
+            "Alvin": "Alvin Ching", "alvin ching": "Alvin Ching", "Ching, Alvin": "Alvin Ching",
+            "Bryan": "Bryan Lustria", "bryan lustria": "Bryan Lustria", "Lustria, Bryan": "Bryan Lustria",
+            "Kurt": "Kurt Santos", "kurt santos": "Kurt Santos", "Santos, Kurt": "Kurt Santos",
+            "Angelo": "Angelo So", "angelo so": "Angelo So", "So, Angelo": "Angelo So",
+            "John": "John Subong", "john subong": "John Subong", "Subong, John": "John Subong",
+            "Ruth": "Ruth Gabaldon", "ruth gabaldon": "Ruth Gabaldon", "Gabaldon, Ruth": "Ruth Gabaldon",
+            "Dana": "Dana Dela Cruz", "dana dela cruz": "Dana Dela Cruz", "Dela Cruz, Dana": "Dana Dela Cruz",
+            "Patrick": "Patrick Uy", "patrick uy": "Patrick Uy", "Uy, Patrick": "Patrick Uy",
+            "Justin": "Justin Quinn", "justin quinn": "Justin Quinn", "Quinn, Justin": "Justin Quinn",
+            "Michael": "Michael Sy", "michael sy": "Michael Sy", "Sy, Michael": "Michael Sy",
+            "RayAnn": "RayAnn Magpantay", "rayann magpantay": "RayAnn Magpantay", "Magpantay, RayAnn": "RayAnn Magpantay",
+            "Rayner": "Rayner Salvador", "rayner salvador": "Rayner Salvador", "Salvador, Rayner": "Rayner Salvador",
+            "Cris": "Cris Aguda", "cris aguda": "Cris Aguda", "Aguda, Cris": "Cris Aguda",
+            "Itzak": "Itzak Dekire", "itzak dekire": "Itzak Dekire", "Dekire, Itzak": "Itzak Dekire",
+            "Melvin": "Melvin Del Cruz", "melvin del cruz": "Melvin Del Cruz", "Del Cruz, Melvin": "Melvin Del Cruz"
+        };
+    }
+
+    function renderAttendancePreview() {
+        let html = '<thead><tr><th style="text-align:left;">Employee</th><th>Date</th><th>Clock In</th><th>Status</th></tr></thead><tbody>';
+        const shown = pendingAttendanceData.slice(0, 100); // Show first 100
+        shown.forEach(rec => {
+            const dateStr = rec.date.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
+            const status = rec.employee ? `<span style="color:#66bb6a;">✓ ${rec.employee}</span>` : `<span style="color:#ef5350;">✗ Unmatched: ${rec.original}</span>`;
+            html += `<tr><td style="text-align:left;">${rec.original}</td><td>${dateStr}</td><td>${rec.clockIn || '-'}</td><td>${status}</td></tr>`;
+        });
+        if (pendingAttendanceData.length > 100) {
+            html += `<tr><td colspan="4" style="color:#aaa; text-align:center;">... and ${pendingAttendanceData.length - 100} more records</td></tr>`;
+        }
+        html += '</tbody>';
+        document.getElementById('attendancePreviewTable').innerHTML = html;
+    }
+
+    function confirmAttendanceImport() {
+        let applied = 0;
+        pendingAttendanceData.forEach(rec => {
+            if (!rec.employee || !rec.date) return;
+            const monthKey = rec.date.toLocaleString('en', { month: 'long', year: 'numeric' });
+            const data = scheduleData[monthKey];
+            if (!data) return;
+
+            const day = rec.date.getDate();
+            const rowIdx = day - 1;
+            if (rowIdx < 0 || rowIdx >= data.rows.length) return;
+
+            const row = data.rows[rowIdx];
+            // Only mark as WFO if the cell is empty or not already set to something meaningful
+            const currentVal = (row.shifts[rec.employee] || '').toUpperCase().trim();
+            if (!currentVal || currentVal === '') {
+                row.shifts[rec.employee] = 'WFO';
+                applied++;
+            } else if (currentVal !== 'WFO' && currentVal !== 'O' && currentVal !== 'H' && currentVal !== 'S' && currentVal !== 'EL' && currentVal !== 'PL' && currentVal !== 'CL') {
+                // If it has some other value (like a shift code), mark as WFO
+                row.shifts[rec.employee] = 'WFO';
+                applied++;
+            }
+        });
+
+        if (applied > 0) {
+            saveData();
+            renderMonth();
+            renderSummary();
+        }
+
+        document.getElementById('attendancePreview').style.display = 'none';
+        const statusEl = document.getElementById('attendanceStatus');
+        statusEl.textContent = `Successfully applied ${applied} WFO shifts from attendance data!`;
+        statusEl.style.color = '#66bb6a';
+        pendingAttendanceData = [];
+    }
+
+    function cancelAttendanceImport() {
+        pendingAttendanceData = [];
+        document.getElementById('attendancePreview').style.display = 'none';
+        document.getElementById('attendanceStatus').textContent = 'Import cancelled.';
+        document.getElementById('attendanceStatus').style.color = '#aaa';
+    }
+
+    function parseCSV(text) {
+        const lines = text.split(/\r?\n/);
+        return lines.map(line => {
+            const result = [];
+            let current = '';
+            let inQuotes = false;
+            for (let i = 0; i < line.length; i++) {
+                if (line[i] === '"') { inQuotes = !inQuotes; }
+                else if (line[i] === ',' && !inQuotes) { result.push(current.trim()); current = ''; }
+                else { current += line[i]; }
+            }
+            result.push(current.trim());
+            return result;
+        }).filter(row => row.some(cell => cell.length > 0));
+    }
+
+    // Drag and drop support for attendance upload
+    (function() {
+        document.addEventListener('DOMContentLoaded', function() {
+            const area = document.getElementById('attendanceUploadArea');
+            if (!area) return;
+            area.addEventListener('dragover', function(e) { e.preventDefault(); area.classList.add('dragover'); });
+            area.addEventListener('dragleave', function(e) { e.preventDefault(); area.classList.remove('dragover'); });
+            area.addEventListener('drop', function(e) {
+                e.preventDefault(); area.classList.remove('dragover');
+                const files = e.dataTransfer.files;
+                if (files.length > 0 && files[0].name.match(/\.(csv|xlsx?)$/i)) {
+                    handleAttendanceUpload({ target: { files: [files[0]] } });
+                } else { alert('Please drop a .csv, .xlsx, or .xls file.'); }
+            });
+        });
+    })();
 
     // Drag and drop support for file upload
     (function() {
