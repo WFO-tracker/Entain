@@ -1611,36 +1611,12 @@
         let applied = 0;
         pendingAttendanceData.forEach(rec => {
             if (!rec.employee || !rec.date) return;
-            const monthKey = rec.date.toLocaleString('en', { month: 'long', year: 'numeric' });
-            const data = scheduleData[monthKey];
-            if (!data) return;
-
-            const day = rec.date.getDate();
-            const rowIdx = day - 1;
-            if (rowIdx < 0 || rowIdx >= data.rows.length) return;
-
-            const row = data.rows[rowIdx];
-            // Only mark as WFO if the cell is empty or not already set to something meaningful
-            const currentVal = (row.shifts[rec.employee] || '').toUpperCase().trim();
-            if (!currentVal || currentVal === '') {
-                row.shifts[rec.employee] = 'WFO';
-                applied++;
-            } else if (currentVal !== 'WFO' && currentVal !== 'O' && currentVal !== 'H' && currentVal !== 'S' && currentVal !== 'EL' && currentVal !== 'PL' && currentVal !== 'CL') {
-                // If it has some other value (like a shift code), mark as WFO
-                row.shifts[rec.employee] = 'WFO';
-                applied++;
-            }
+            applied++;
         });
-
-        if (applied > 0) {
-            saveData();
-            renderMonth();
-            renderSummary();
-        }
 
         document.getElementById('attendancePreview').style.display = 'none';
         const statusEl = document.getElementById('attendanceStatus');
-        statusEl.textContent = `Successfully applied ${applied} WFO shifts from attendance data!`;
+        statusEl.textContent = `Attendance data loaded: ${applied} records. (Not linked to schedule tabs yet)`;
         statusEl.style.color = '#66bb6a';
         pendingAttendanceData = [];
     }
