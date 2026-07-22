@@ -1668,9 +1668,9 @@
                 rows = parseCSV(text);
             } else {
                 const data = new Uint8Array(e.target.result);
-                const workbook = XLSX.read(data, { type: 'array', cellDates: true });
+                const workbook = XLSX.read(data, { type: 'array', cellDates: false, raw: false });
                 const sheet = workbook.Sheets[workbook.SheetNames[0]];
-                rows = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: false, dateNF: 'dd/mm/yyyy' });
+                rows = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: false, dateNF: 'M/D/YYYY' });
             }
 
             if (rows.length < 2) {
@@ -1679,8 +1679,20 @@
                 return;
             }
 
+            // Find header row (might not be row 0 if there are extra rows above)
+            let headerRowIdx = 0;
+            for (let r = 0; r < Math.min(5, rows.length); r++) {
+                const row = rows[r];
+                if (!row) continue;
+                const rowStr = row.map(c => (c || '').toString().toLowerCase().trim());
+                if (rowStr.includes('name') && (rowStr.includes('date') || rowStr.includes('actual clock in'))) {
+                    headerRowIdx = r;
+                    break;
+                }
+            }
+
             // Auto-detect columns: Name, Date, Week Day, Actual Clock In, Actual Clock Out
-            const header = rows[0].map(h => (h || '').toString().toLowerCase().trim());
+            const header = rows[headerRowIdx].map(h => (h || '').toString().toLowerCase().trim());
             let nameCol = -1, dateCol = -1, dayCol = -1, clockCol = -1, clockOutCol = -1;
 
             for (let i = 0; i < header.length; i++) {
@@ -1726,7 +1738,7 @@
             const nameCorrections = getNameCorrections();
             let matched = 0, unmatched = 0;
 
-            for (let r = 1; r < rows.length; r++) {
+            for (let r = headerRowIdx + 1; r < rows.length; r++) {
                 const row = rows[r];
                 if (!row || !row[nameCol] || !row[dateCol]) continue;
 
@@ -1757,15 +1769,47 @@
             }
 
             if (pendingAttendanceData.length === 0) {
-                statusEl.textContent = 'No valid attendance records found for 2026.';
+                statusEl.textContent = 'No records with Actual Clock In found. Make sure the file has data in the "Actual Clock In" column. (Detected columns: Name=' + nameCol + ', Date=' + dateCol + ', ClockIn=' + clockCol + ', ClockOut=' + clockOutCol + ', Rows scanned: ' + (rows.length - headerRowIdx - 1) + ')';
                 statusEl.style.color = '#ef5350';
                 return;
             }
 
-            // Show preview
+            // Auto-import to Time Log directly (only matched records)
+            let applied = 0;
+            pendingAttendanceData.forEach(rec => {
+                if (!rec.employee || !rec.date) return;
+                timelogData.push({ employee: rec.employee, date: rec.date, day: rec.day || '', clockIn: rec.clockIn || '', clockOut: rec.clockOut || '' });
+                applied++;
+            });
+
+            // Save to Firebase
+            saveTimelogData();
+
+            // Show status
+            statusEl.textContent = `Imported ${applied} records (${matched} matched, ${unmatched} unmatched). Switching to Time Log...`;
+            statusEl.style.color = '#66bb6a';
+
+            // Also show preview for reference
             document.getElementById('attendanceMatchInfo').textContent = `${matched} matched, ${unmatched} unmatched out of ${pendingAttendanceData.length} records`;
             renderAttendancePreview();
             document.getElementById('attendancePreview').style.display = 'block';
+
+            // Refresh timelog selectors and switch to Time Log
+            const empSel = document.getElementById('timelogEmpSelect');
+            empSel.innerHTML = '<option value="">All Employees</option>';
+            const allEmps = new Set();
+            timelogData.forEach(r => { if (r.employee) allEmps.add(r.employee); });
+            Array.from(allEmps).sort().forEach(emp => {
+                const opt = document.createElement('option');
+                opt.value = emp; opt.textContent = emp;
+                empSel.appendChild(opt);
+            });
+            document.getElementById('timelogMonthSelect').innerHTML = '';
+            
+            pendingAttendanceData = [];
+
+            // Auto-switch to Time Log tab after short delay
+            setTimeout(function() { switchTab('timelog'); }, 1500);
             statusEl.textContent = '';
         };
         reader.readAsArrayBuffer(file);
