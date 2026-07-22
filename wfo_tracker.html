@@ -1474,10 +1474,21 @@
             for (let m = 0; m < 12; m++) {
                 months.push(new Date(2026, m, 1).toLocaleString('en', { month: 'long', year: 'numeric' }));
             }
+            // Find which month has the most timelog data to auto-select
+            let bestMonth = currentMonth;
+            let bestCount = 0;
+            months.forEach(m => {
+                const count = timelogData.filter(rec => {
+                    if (!rec.date) return false;
+                    const d = new Date(rec.date);
+                    return d.toLocaleString('en', { month: 'long', year: 'numeric' }) === m;
+                }).length;
+                if (count > bestCount) { bestCount = count; bestMonth = m; }
+            });
             months.forEach(m => {
                 const opt = document.createElement('option');
                 opt.value = m; opt.textContent = m;
-                if (m === currentMonth) opt.selected = true;
+                if (m === bestMonth) opt.selected = true;
                 sel.appendChild(opt);
             });
         }
@@ -1487,7 +1498,6 @@
         if (empSel.options.length <= 1) {
             const allEmps = new Set();
             timelogData.forEach(rec => { if (rec.employee) allEmps.add(rec.employee); });
-            DEFAULT_EMPLOYEES.forEach(e => allEmps.add(e));
             Array.from(allEmps).sort().forEach(emp => {
                 const opt = document.createElement('option');
                 opt.value = emp; opt.textContent = emp;
@@ -1940,6 +1950,7 @@
         statusEl.textContent = `Attendance imported: ${applied} records added to Time Log.`;
         statusEl.style.color = '#66bb6a';
         pendingAttendanceData = [];
+
         // Refresh timelog employee selector
         const empSel = document.getElementById('timelogEmpSelect');
         empSel.innerHTML = '<option value="">All Employees</option>';
@@ -1950,6 +1961,12 @@
             opt.value = emp; opt.textContent = emp;
             empSel.appendChild(opt);
         });
+
+        // Reset month selector so it rebuilds with correct months
+        document.getElementById('timelogMonthSelect').innerHTML = '';
+
+        // Switch to Time Log tab to show results
+        switchTab('timelog');
     }
 
     function cancelAttendanceImport() {
