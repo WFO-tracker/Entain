@@ -1466,17 +1466,21 @@
     // ============================================================
     // TIME LOG RENDERING
     // ============================================================
+    // TIME LOG RENDERING
+    // ============================================================
     function renderTimelog() {
         // Populate month selector
         const sel = document.getElementById('timelogMonthSelect');
-        if (sel.options.length === 0) {
-            const months = [];
-            for (let m = 0; m < 12; m++) {
-                months.push(new Date(2026, m, 1).toLocaleString('en', { month: 'long', year: 'numeric' }));
-            }
-            // Find which month has the most timelog data to auto-select
-            let bestMonth = currentMonth;
-            let bestCount = 0;
+        const prevMonth = sel.value;
+        sel.innerHTML = '';
+        const months = [];
+        for (let m = 0; m < 12; m++) {
+            months.push(new Date(2026, m, 1).toLocaleString('en', { month: 'long', year: 'numeric' }));
+        }
+        // Find which month has the most timelog data to auto-select
+        let bestMonth = prevMonth || currentMonth;
+        let bestCount = 0;
+        if (!prevMonth) {
             months.forEach(m => {
                 const count = timelogData.filter(rec => {
                     if (!rec.date) return false;
@@ -1485,27 +1489,28 @@
                 }).length;
                 if (count > bestCount) { bestCount = count; bestMonth = m; }
             });
-            months.forEach(m => {
-                const opt = document.createElement('option');
-                opt.value = m; opt.textContent = m;
-                if (m === bestMonth) opt.selected = true;
-                sel.appendChild(opt);
-            });
         }
+        months.forEach(m => {
+            const opt = document.createElement('option');
+            opt.value = m; opt.textContent = m;
+            if (m === bestMonth) opt.selected = true;
+            sel.appendChild(opt);
+        });
 
         // Populate employee selector
         const empSel = document.getElementById('timelogEmpSelect');
-        if (empSel.options.length <= 1) {
-            const allEmps = new Set();
-            timelogData.forEach(rec => { if (rec.employee) allEmps.add(rec.employee); });
-            Array.from(allEmps).sort().forEach(emp => {
-                const opt = document.createElement('option');
-                opt.value = emp; opt.textContent = emp;
-                empSel.appendChild(opt);
-            });
-        }
+        const prevEmp = empSel.value;
+        empSel.innerHTML = '<option value="">All Employees</option>';
+        const allEmps = new Set();
+        timelogData.forEach(rec => { if (rec.employee) allEmps.add(rec.employee); });
+        Array.from(allEmps).sort().forEach(emp => {
+            const opt = document.createElement('option');
+            opt.value = emp; opt.textContent = emp;
+            if (emp === prevEmp) opt.selected = true;
+            empSel.appendChild(opt);
+        });
 
-        const selectedMonth = sel.value || currentMonth;
+        const selectedMonth = sel.value || bestMonth;
         const selectedEmp = empSel.value;
 
         // Filter timelog data
@@ -1526,14 +1531,16 @@
         }
         emptyEl.style.display = 'none';
 
-        // Sort by date then employee
+        // Sort by employee then date
         filtered.sort((a, b) => {
-            const da = new Date(a.date), db = new Date(b.date);
-            if (da - db !== 0) return da - db;
-            return (a.employee || '').localeCompare(b.employee || '');
+            const empCmp = (a.employee || '').localeCompare(b.employee || '');
+            if (empCmp !== 0) return empCmp;
+            return new Date(a.date) - new Date(b.date);
         });
 
         let html = '<thead><tr><th style="text-align:left;">Employee</th><th>Date</th><th>Day</th><th>Clock In</th><th>Clock Out</th><th>Hours</th></tr></thead><tbody>';
+        
+        let lastEmp = '';
         filtered.forEach(rec => {
             const d = new Date(rec.date);
             const dateStr = d.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
@@ -1542,7 +1549,7 @@
 
             // Calculate hours worked
             let hours = '-';
-            if (rec.clockIn && rec.clockOut && rec.clockIn !== 'Present' && rec.clockOut !== '') {
+            if (rec.clockIn && rec.clockOut && rec.clockIn !== '-' && rec.clockOut !== '') {
                 const inTime = parseTimeString(rec.clockIn);
                 const outTime = parseTimeString(rec.clockOut);
                 if (inTime !== null && outTime !== null) {
@@ -1552,8 +1559,15 @@
                 }
             }
 
+            // Add separator row when employee changes
+            const showEmpName = (rec.employee !== lastEmp);
+            if (showEmpName && lastEmp !== '') {
+                html += '<tr><td colspan="6" style="border:none; height:8px;"></td></tr>';
+            }
+            lastEmp = rec.employee;
+
             html += `<tr class="${isWeekend ? 'weekend' : ''}" style="cursor:pointer;" onclick="highlightTimelogRow(this)">`;
-            html += `<td style="text-align:left; color:#eee; font-weight:600;">${rec.employee}</td>`;
+            html += `<td style="text-align:left; color:#eee; font-weight:${showEmpName ? 'bold' : 'normal'};">${showEmpName ? rec.employee : ''}</td>`;
             html += `<td style="color:#90caf9;">${dateStr}</td>`;
             html += `<td style="color:#aaa;">${dayStr}</td>`;
             html += `<td style="color:#66bb6a; font-weight:bold;">${rec.clockIn || '-'}</td>`;
@@ -1769,47 +1783,17 @@
             }
 
             if (pendingAttendanceData.length === 0) {
-                statusEl.textContent = 'No records with Actual Clock In found. Make sure the file has data in the "Actual Clock In" column. (Detected columns: Name=' + nameCol + ', Date=' + dateCol + ', ClockIn=' + clockCol + ', ClockOut=' + clockOutCol + ', Rows scanned: ' + (rows.length - headerRowIdx - 1) + ')';
+                statusEl.textContent = 'No records with Actual Clock In found. Detected: Name col=' + nameCol + ', Date col=' + dateCol + ', ClockIn col=' + clockCol + ', Rows=' + (rows.length - headerRowIdx - 1);
                 statusEl.style.color = '#ef5350';
                 return;
             }
 
-            // Auto-import to Time Log directly (only matched records)
-            let applied = 0;
-            pendingAttendanceData.forEach(rec => {
-                if (!rec.employee || !rec.date) return;
-                timelogData.push({ employee: rec.employee, date: rec.date, day: rec.day || '', clockIn: rec.clockIn || '', clockOut: rec.clockOut || '' });
-                applied++;
-            });
-
-            // Save to Firebase
-            saveTimelogData();
-
-            // Show status
-            statusEl.textContent = `Imported ${applied} records (${matched} matched, ${unmatched} unmatched). Switching to Time Log...`;
-            statusEl.style.color = '#66bb6a';
-
-            // Also show preview for reference
+            // Show preview
             document.getElementById('attendanceMatchInfo').textContent = `${matched} matched, ${unmatched} unmatched out of ${pendingAttendanceData.length} records`;
             renderAttendancePreview();
             document.getElementById('attendancePreview').style.display = 'block';
-
-            // Refresh timelog selectors and switch to Time Log
-            const empSel = document.getElementById('timelogEmpSelect');
-            empSel.innerHTML = '<option value="">All Employees</option>';
-            const allEmps = new Set();
-            timelogData.forEach(r => { if (r.employee) allEmps.add(r.employee); });
-            Array.from(allEmps).sort().forEach(emp => {
-                const opt = document.createElement('option');
-                opt.value = emp; opt.textContent = emp;
-                empSel.appendChild(opt);
-            });
-            document.getElementById('timelogMonthSelect').innerHTML = '';
-            
-            pendingAttendanceData = [];
-
-            // Auto-switch to Time Log tab after short delay
-            setTimeout(function() { switchTab('timelog'); }, 1500);
+            statusEl.textContent = `Found ${pendingAttendanceData.length} clock-in records. Click "Confirm & Apply WFO" to import to Time Log.`;
+            statusEl.style.color = '#4fc3f7';
             statusEl.textContent = '';
         };
         reader.readAsArrayBuffer(file);
@@ -1990,26 +1974,11 @@
         saveTimelogData();
 
         document.getElementById('attendancePreview').style.display = 'none';
-        const statusEl = document.getElementById('attendanceStatus');
-        statusEl.textContent = `Attendance imported: ${applied} records added to Time Log.`;
-        statusEl.style.color = '#66bb6a';
+        document.getElementById('attendanceStatus').textContent = `✓ ${applied} records imported to Time Log.`;
+        document.getElementById('attendanceStatus').style.color = '#66bb6a';
         pendingAttendanceData = [];
 
-        // Refresh timelog employee selector
-        const empSel = document.getElementById('timelogEmpSelect');
-        empSel.innerHTML = '<option value="">All Employees</option>';
-        const allEmps = new Set();
-        timelogData.forEach(r => { if (r.employee) allEmps.add(r.employee); });
-        Array.from(allEmps).sort().forEach(emp => {
-            const opt = document.createElement('option');
-            opt.value = emp; opt.textContent = emp;
-            empSel.appendChild(opt);
-        });
-
-        // Reset month selector so it rebuilds with correct months
-        document.getElementById('timelogMonthSelect').innerHTML = '';
-
-        // Switch to Time Log tab to show results
+        // Switch to Time Log tab and render
         switchTab('timelog');
     }
 
