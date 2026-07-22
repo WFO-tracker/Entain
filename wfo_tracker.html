@@ -2030,17 +2030,22 @@
     }
 
     function confirmAttendanceImport() {
-        // Clear old timelog data before importing fresh
-        timelogData = [];
-        
         let applied = 0;
         let skipped = 0;
         pendingAttendanceData.forEach(rec => {
             if (!rec.date) return;
             // Only import records with a matched employee name (skip unmatched)
             if (rec.employee) {
-                timelogData.push({ employee: rec.employee, date: rec.date, day: rec.day || '', clockIn: rec.clockIn || '', clockOut: rec.clockOut || '' });
-                applied++;
+                // Check if this exact record already exists (avoid duplicates)
+                const dateStr = rec.date instanceof Date ? rec.date.toISOString().split('T')[0] : rec.date;
+                const exists = timelogData.some(existing => {
+                    const existDate = existing.date instanceof Date ? existing.date.toISOString().split('T')[0] : existing.date;
+                    return existing.employee === rec.employee && existDate === dateStr;
+                });
+                if (!exists) {
+                    timelogData.push({ employee: rec.employee, date: rec.date, day: rec.day || '', clockIn: rec.clockIn || '', clockOut: rec.clockOut || '' });
+                    applied++;
+                }
             } else {
                 skipped++;
             }
@@ -2050,7 +2055,7 @@
         saveTimelogData();
 
         document.getElementById('attendancePreview').style.display = 'none';
-        document.getElementById('attendanceStatus').textContent = `✓ ${applied} records imported to Time Log.` + (skipped > 0 ? ` (${skipped} unmatched skipped)` : '');
+        document.getElementById('attendanceStatus').textContent = `✓ ${applied} new records added to Time Log.` + (skipped > 0 ? ` (${skipped} unmatched skipped)` : '');
         document.getElementById('attendanceStatus').style.color = '#66bb6a';
         pendingAttendanceData = [];
     }
