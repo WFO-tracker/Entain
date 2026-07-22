@@ -1713,9 +1713,19 @@
                 const h = header[i];
                 if (h === 'actual clock in' || h === 'actual clockin' || h === 'actual_clock_in') clockCol = i;
                 else if (h === 'actual clock out' || h === 'actual clockout' || h === 'actual_clock_out') clockOutCol = i;
-                else if (nameCol === -1 && (h === 'name' || h.includes('employee') || h.includes('staff'))) nameCol = i;
+                else if (nameCol === -1 && h === 'name') nameCol = i;
+                else if (nameCol === -1 && (h === 'employee name' || h === 'full name' || h === 'staff name')) nameCol = i;
                 else if (dateCol === -1 && h === 'date') dateCol = i;
                 else if (dayCol === -1 && (h === 'week day' || h === 'weekday' || h === 'day')) dayCol = i;
+            }
+            // If no "name" column found, try broader match but skip ID columns
+            if (nameCol === -1) {
+                for (let i = 0; i < header.length; i++) {
+                    const h = header[i];
+                    if ((h.includes('name') || h.includes('employee') || h.includes('staff')) && !h.includes('id') && !h.includes('number') && !h.includes('no')) {
+                        nameCol = i; break;
+                    }
+                }
             }
 
             // Fallback for clock columns
@@ -1784,11 +1794,9 @@
             if (pendingAttendanceData.length === 0) {
                 // Show debug info about what was found
                 let sampleRow = rows[headerRowIdx + 1] || [];
-                let sampleInfo = 'Sample row: ';
-                sampleInfo += 'Name="' + (sampleRow[nameCol] || '') + '", ';
-                sampleInfo += 'Date="' + (sampleRow[dateCol] || '') + '", ';
-                sampleInfo += 'ClockIn="' + (clockCol >= 0 ? (sampleRow[clockCol] || '') : 'N/A') + '"';
-                statusEl.textContent = 'No records found. Cols: Name=' + nameCol + ', Date=' + dateCol + ', ClockIn=' + clockCol + ', ClockOut=' + clockOutCol + '. Header row=' + headerRowIdx + '. ' + sampleInfo;
+                let headerInfo = 'Headers: ' + header.slice(0, 15).join(' | ');
+                let sampleInfo = 'Sample: Name="' + (sampleRow[nameCol] || '') + '", Date="' + (sampleRow[dateCol] || '') + '", ClockIn="' + (clockCol >= 0 ? (sampleRow[clockCol] || '') : 'N/A') + '"';
+                statusEl.textContent = 'No records found. ' + headerInfo + '. Cols: Name=' + nameCol + ', Date=' + dateCol + ', ClockIn=' + clockCol + '. ' + sampleInfo;
                 statusEl.style.color = '#ef5350';
                 return;
             }
