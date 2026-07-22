@@ -1627,6 +1627,35 @@
         return trimmed;
     }
 
+    // Parse date from clock-in datetime string like "6/4/2026 21:55" (M/D/YYYY format)
+    function parseDateFromClockIn(str) {
+        if (!str) return null;
+        const match = str.trim().match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})\s/);
+        if (match) {
+            const month = parseInt(match[1]);
+            const day = parseInt(match[2]);
+            const year = parseInt(match[3]);
+            // PayrollHero uses M/D/YYYY format
+            return new Date(year, month - 1, day);
+        }
+        return null;
+    }
+
+    // Parse date string in US format M/D/YYYY
+    function parseUSDate(str) {
+        if (!str) return null;
+        const parts = str.trim().split('/');
+        if (parts.length === 3) {
+            const month = parseInt(parts[0]);
+            const day = parseInt(parts[1]);
+            let year = parseInt(parts[2]);
+            if (year < 100) year += 2000;
+            return new Date(year, month - 1, day);
+        }
+        // Fallback
+        return parseFlexDate(str);
+    }
+
     function saveTimelogData() {
         // Save to Firebase
         const serialized = timelogData.map(rec => ({
@@ -1793,7 +1822,15 @@
                 if (!rawClockIn) continue; // Skip rows without actual clock in
 
                 let empName = (row[nameCol] || '').toString().trim();
-                const dateVal = parseFlexDate((row[dateCol] || '').toString().trim());
+                
+                // Parse date from the Actual Clock In column (more reliable, format: M/D/YYYY H:MM)
+                // This avoids ambiguity between DD/MM and MM/DD formats
+                let dateVal = parseDateFromClockIn(rawClockIn);
+                if (!dateVal) {
+                    // Fallback to Date column, force M/D/YYYY parsing (US format from PayrollHero)
+                    const rawDate = (row[dateCol] || '').toString().trim();
+                    dateVal = parseUSDate(rawDate);
+                }
                 const dayVal = dayCol >= 0 ? (row[dayCol] || '').toString().trim() : (dateVal ? dateVal.toLocaleString('en', { weekday: 'long' }) : '');
 
                 if (!dateVal || isNaN(dateVal.getTime())) continue;
