@@ -127,7 +127,7 @@
             <button class="btn tab-btn" id="tabOccupancy" onclick="switchTab('occupancy')" style="background:#00695c;color:#fff;">📈 Office Occupancy %</button>
             <button class="btn tab-btn" id="tabTimelog" onclick="switchTab('timelog')" style="background:#1565c0;color:#fff;">🕐 Time Log</button>
             <button class="btn tab-btn" id="tabImport" style="display:none;background:#f57c00;color:#fff;" onclick="switchTab('upload')">📁 Import Schedule</button>
-            <button class="btn tab-btn" id="tabAttendance" onclick="switchTab('attendance')" style="background:#d32f2f;color:#fff;">⏰ Import Attendance</button>
+            <button class="btn tab-btn" id="tabAttendance" onclick="switchTab('attendance')" style="display:none;background:#d32f2f;color:#fff;">⏰ Import Attendance</button>
             <button class="btn tab-btn" id="btnCopySchedule" style="display:none;background:#00897b;color:#fff;" onclick="copyScheduleToClipboard()">📋 Export Schedule</button>
         </div>
 
@@ -2522,6 +2522,7 @@
             document.getElementById('btnRemoveWFO').style.display = '';
             document.getElementById('btnCopySchedule').style.display = '';
             document.getElementById('tabImport').style.display = '';
+            document.getElementById('tabAttendance').style.display = '';
         }
     }
 
@@ -2536,6 +2537,7 @@
         document.getElementById('btnRemoveWFO').style.display = 'none';
         document.getElementById('btnCopySchedule').style.display = 'none';
         document.getElementById('tabImport').style.display = 'none';
+        document.getElementById('tabAttendance').style.display = 'none';
     }
 
     function showChangePassword() {
@@ -2611,6 +2613,7 @@
                 document.getElementById('btnRemoveWFO').style.display = '';
                 document.getElementById('btnCopySchedule').style.display = '';
                 document.getElementById('tabImport').style.display = '';
+                document.getElementById('tabAttendance').style.display = '';
             }
         }
     })();
