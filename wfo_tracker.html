@@ -1527,7 +1527,7 @@
         filtered.forEach(rec => {
             const d = new Date(rec.date);
             const dateStr = d.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
-            const dayStr = d.toLocaleString('en', { weekday: 'short' });
+            const dayStr = rec.day || d.toLocaleString('en', { weekday: 'short' });
             const isWeekend = d.getDay() === 0 || d.getDay() === 6;
 
             // Calculate hours worked
@@ -1584,11 +1584,26 @@
         return null;
     }
 
+    // Extract time portion from datetime string like "1/5/2026 5:41" -> "5:41"
+    function extractTimeFromDateTime(str) {
+        if (!str) return '';
+        const trimmed = str.trim();
+        // Match "date time" format: "1/5/2026 5:41" or "01/05/2026 05:41:00"
+        const match = trimmed.match(/\d+[\/\-]\d+[\/\-]\d+\s+(\d{1,2}:\d{2}(?::\d{2})?(?:\s*[AP]M)?)/i);
+        if (match) return match[1];
+        // If it's already just a time like "5:41" or "14:02"
+        const timeOnly = trimmed.match(/^(\d{1,2}:\d{2}(?::\d{2})?(?:\s*[AP]M)?)$/i);
+        if (timeOnly) return timeOnly[1];
+        // Return raw value as fallback
+        return trimmed;
+    }
+
     function saveTimelogData() {
         // Save to Firebase
         const serialized = timelogData.map(rec => ({
             employee: rec.employee,
             date: rec.date instanceof Date ? rec.date.toISOString().split('T')[0] : rec.date,
+            day: rec.day || '',
             clockIn: rec.clockIn || '',
             clockOut: rec.clockOut || ''
         }));
@@ -1605,7 +1620,7 @@
             if (parts.length === 3) {
                 dateObj = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
             }
-            return { employee: rec.employee, date: dateObj, clockIn: rec.clockIn || '', clockOut: rec.clockOut || '' };
+            return { employee: rec.employee, date: dateObj, day: rec.day || '', clockIn: rec.clockIn || '', clockOut: rec.clockOut || '' };
         }).filter(rec => rec.date && !isNaN(rec.date.getTime()));
         // Refresh timelog employee selector
         const empSel = document.getElementById('timelogEmpSelect');
@@ -1654,43 +1669,49 @@
                 return;
             }
 
-            // Auto-detect columns: find name col, date col, actual clock-in col, actual clock-out col
+            // Auto-detect columns: Name, Date, Week Day, Actual Clock In, Actual Clock Out
             const header = rows[0].map(h => (h || '').toString().toLowerCase().trim());
-            let nameCol = -1, dateCol = -1, clockCol = -1, clockOutCol = -1;
+            let nameCol = -1, dateCol = -1, dayCol = -1, clockCol = -1, clockOutCol = -1;
 
-            // First pass: look for "actual clock in" / "actual clock out" specifically
             for (let i = 0; i < header.length; i++) {
                 const h = header[i];
-                if (clockCol === -1 && (h.includes('actual clock in') || h.includes('actual clockin') || h.includes('actual_clock_in') || h === 'actual clock-in')) clockCol = i;
-                if (clockOutCol === -1 && (h.includes('actual clock out') || h.includes('actual clockout') || h.includes('actual_clock_out') || h === 'actual clock-out')) clockOutCol = i;
+                if (h === 'actual clock in' || h === 'actual clockin' || h === 'actual_clock_in') clockCol = i;
+                else if (h === 'actual clock out' || h === 'actual clockout' || h === 'actual_clock_out') clockOutCol = i;
+                else if (nameCol === -1 && (h === 'name' || h.includes('employee') || h.includes('staff'))) nameCol = i;
+                else if (dateCol === -1 && h === 'date') dateCol = i;
+                else if (dayCol === -1 && (h === 'week day' || h === 'weekday' || h === 'day')) dayCol = i;
             }
 
-            // Second pass: find name and date, and fallback clock columns
-            for (let i = 0; i < header.length; i++) {
-                const h = header[i];
-                if (nameCol === -1 && (h.includes('name') || h.includes('employee') || h.includes('staff') || h.includes('person'))) nameCol = i;
-                else if (dateCol === -1 && (h.includes('date') || h.includes('day') || h.includes('shift'))) dateCol = i;
-                else if (clockCol === -1 && (h.includes('clock in') || h.includes('time in') || h.includes('in time') || h.includes('check in') || h.includes('punch in') || h.includes('arrival') || h === 'clock_in' || h === 'clockin')) clockCol = i;
-                else if (clockOutCol === -1 && (h.includes('clock out') || h.includes('time out') || h.includes('out time') || h.includes('check out') || h.includes('punch out') || h.includes('departure') || h === 'clock_out' || h === 'clockout')) clockOutCol = i;
+            // Fallback for clock columns
+            if (clockCol === -1 || clockOutCol === -1) {
+                for (let i = 0; i < header.length; i++) {
+                    const h = header[i];
+                    if (clockCol === -1 && h.includes('actual') && h.includes('in')) clockCol = i;
+                    if (clockOutCol === -1 && h.includes('actual') && h.includes('out')) clockOutCol = i;
+                }
             }
 
-            // Fallback: if no header match, try first few columns
+            // Fallback: detect by content
             if (nameCol === -1 || dateCol === -1) {
-                // Try to detect by content in row 1
-                for (let i = 0; i < Math.min(10, (rows[1] || []).length); i++) {
+                for (let i = 0; i < Math.min(15, (rows[1] || []).length); i++) {
                     const val = (rows[1][i] || '').toString().trim();
-                    if (nameCol === -1 && val.length > 3 && !val.match(/^\d/) && val.includes(' ')) nameCol = i;
+                    if (nameCol === -1 && val.length > 3 && !val.match(/^\d/) && val.includes(',')) nameCol = i;
                     else if (dateCol === -1 && isDateLike(val)) dateCol = i;
                 }
             }
 
             if (nameCol === -1 || dateCol === -1) {
-                statusEl.textContent = 'Could not detect Employee Name and Date columns. Please ensure headers include "Name" and "Date".';
+                statusEl.textContent = 'Could not detect Name and Date columns. Ensure headers include "Name" and "Date".';
+                statusEl.style.color = '#ef5350';
+                return;
+            }
+            if (clockCol === -1) {
+                statusEl.textContent = 'Could not find "Actual Clock In" column. Please check file headers.';
                 statusEl.style.color = '#ef5350';
                 return;
             }
 
-            // Parse attendance records
+            // Parse attendance records - only rows with Actual Clock In
             pendingAttendanceData = [];
             const nameCorrections = getNameCorrections();
             let matched = 0, unmatched = 0;
@@ -1699,21 +1720,28 @@
                 const row = rows[r];
                 if (!row || !row[nameCol] || !row[dateCol]) continue;
 
+                const rawClockIn = clockCol >= 0 ? (row[clockCol] || '').toString().trim() : '';
+                const rawClockOut = clockOutCol >= 0 ? (row[clockOutCol] || '').toString().trim() : '';
+                if (!rawClockIn) continue; // Skip rows without actual clock in
+
                 let empName = (row[nameCol] || '').toString().trim();
                 const dateVal = parseFlexDate((row[dateCol] || '').toString().trim());
-                const clockIn = clockCol >= 0 ? (row[clockCol] || '').toString().trim() : 'Present';
-                const clockOut = clockOutCol >= 0 ? (row[clockOutCol] || '').toString().trim() : '';
+                const dayVal = dayCol >= 0 ? (row[dayCol] || '').toString().trim() : (dateVal ? dateVal.toLocaleString('en', { weekday: 'long' }) : '');
 
                 if (!dateVal || isNaN(dateVal.getTime())) continue;
-                if (dateVal.getFullYear() !== 2026) continue;
+                if (dateVal.getFullYear() < 2026) continue;
+
+                // Extract time only from datetime format like "1/5/2026 5:41"
+                const clockIn = extractTimeFromDateTime(rawClockIn);
+                const clockOut = extractTimeFromDateTime(rawClockOut);
 
                 // Match employee name
                 const resolvedName = resolveEmployeeName(empName, nameCorrections);
                 if (resolvedName) {
-                    pendingAttendanceData.push({ employee: resolvedName, date: dateVal, clockIn: clockIn, clockOut: clockOut, original: empName });
+                    pendingAttendanceData.push({ employee: resolvedName, date: dateVal, day: dayVal, clockIn: clockIn, clockOut: clockOut, original: empName });
                     matched++;
                 } else {
-                    pendingAttendanceData.push({ employee: null, date: dateVal, clockIn: clockIn, clockOut: clockOut, original: empName });
+                    pendingAttendanceData.push({ employee: null, date: dateVal, day: dayVal, clockIn: clockIn, clockOut: clockOut, original: empName });
                     unmatched++;
                 }
             }
@@ -1745,18 +1773,30 @@
         if (corrections[trimmed]) return corrections[trimmed];
         if (corrections[trimmed.toLowerCase()]) return corrections[trimmed.toLowerCase()];
         
-        // Try "LastName, FirstName" format (with comma)
+        // Handle multi-part comma format: "LastName, FirstName, MiddleName" (e.g., "Aguda, Cristopher, De Dios")
         if (trimmed.includes(',')) {
             const parts = trimmed.split(',').map(s => s.trim());
-            const flipped = parts[1] + ' ' + parts[0];
-            if (corrections[flipped]) return corrections[flipped];
-            if (corrections[flipped.toLowerCase()]) return corrections[flipped.toLowerCase()];
-            // Direct match flipped
-            for (const monthKey of Object.keys(scheduleData)) {
-                if (scheduleData[monthKey].employees.includes(flipped)) return flipped;
+            // Try "FirstName LastName" (first two parts flipped)
+            if (parts.length >= 2) {
+                const flipped = parts[1] + ' ' + parts[0];
+                if (corrections[flipped]) return corrections[flipped];
+                if (corrections[flipped.toLowerCase()]) return corrections[flipped.toLowerCase()];
+                for (const monthKey of Object.keys(scheduleData)) {
+                    if (scheduleData[monthKey].employees.includes(flipped)) return flipped;
+                }
+                // Try just first name (second part)
+                if (corrections[parts[1]]) return corrections[parts[1]];
+                if (corrections[parts[1].toLowerCase()]) return corrections[parts[1].toLowerCase()];
+                // Try just last name (first part)
+                if (corrections[parts[0]]) return corrections[parts[0]];
+                if (corrections[parts[0].toLowerCase()]) return corrections[parts[0].toLowerCase()];
             }
-            // Try just first name from flipped
-            if (corrections[parts[1]]) return corrections[parts[1]];
+            // Try with middle name: "FirstName MiddleName LastName" or "FirstName LastName"
+            if (parts.length >= 3) {
+                const fullFlipped = parts[1] + ' ' + parts[2] + ' ' + parts[0];
+                if (corrections[fullFlipped]) return corrections[fullFlipped];
+                if (corrections[fullFlipped.toLowerCase()]) return corrections[fullFlipped.toLowerCase()];
+            }
         }
         
         // Try "LastName FirstName" format (without comma) - flip word order
@@ -1772,11 +1812,11 @@
                 if (scheduleData[monthKey].employees.includes(flippedNoComma)) return flippedNoComma;
             }
             
-            // Also try first word as first name (normal order): "Melvin Del Cruz" matches directly
+            // Try first word as first name (normal order)
             const firstWord = words[0];
             if (corrections[firstWord]) return corrections[firstWord];
             
-            // Try "FirstName LastName" where first word is last name: "Paco Roman" -> "Roman Paco"
+            // Try swapping two words: "Paco Roman" -> "Roman Paco"
             if (words.length === 2) {
                 const swapped = words[1] + ' ' + words[0];
                 if (corrections[swapped]) return corrections[swapped];
@@ -1790,11 +1830,13 @@
         // Try first name only
         const firstName = words[0];
         if (corrections[firstName]) return corrections[firstName];
+        if (corrections[firstName.toLowerCase()]) return corrections[firstName.toLowerCase()];
         
-        // Try last name only (second word or last word)
+        // Try last name only
         if (words.length >= 2) {
             const lastName = words[words.length - 1];
             if (corrections[lastName]) return corrections[lastName];
+            if (corrections[lastName.toLowerCase()]) return corrections[lastName.toLowerCase()];
         }
         
         return null;
@@ -1808,7 +1850,7 @@
             "Alexander": "Alexander Tan", "Roman": "Roman Paco", "Alvin": "Alvin Ching", "Bryan": "Bryan Lustria",
             "Kurt": "Kurt Santos", "Angelo": "Angelo So", "John": "John Subong", "Ruth": "Ruth Gabaldon",
             "Dana": "Dana Dela Cruz", "Patrick": "Patrick Uy", "Justin": "Justin Quinn", "Michael": "Michael Sy",
-            "RayAnn": "RayAnn Magpantay", "Rayner": "Rayner Salvador", "Cris": "Cris Aguda",
+            "RayAnn": "RayAnn Magpantay", "Rayner": "Rayner Salvador", "Cris": "Cris Aguda", "Cristopher": "Cris Aguda",
             "Itzak": "Itzak Dekire", "Melvin": "Melvin Del Cruz",
             // Full name (normal order)
             "Joshua Curtis": "Joshua Curtis", "Nico Dabon": "Nico Dabon", "Carlo Santia": "Carlo Santia",
@@ -1886,7 +1928,7 @@
         let applied = 0;
         pendingAttendanceData.forEach(rec => {
             if (!rec.employee || !rec.date) return;
-            timelogData.push({ employee: rec.employee, date: rec.date, clockIn: rec.clockIn || '', clockOut: rec.clockOut || '' });
+            timelogData.push({ employee: rec.employee, date: rec.date, day: rec.day || '', clockIn: rec.clockIn || '', clockOut: rec.clockOut || '' });
             applied++;
         });
 
@@ -1898,6 +1940,16 @@
         statusEl.textContent = `Attendance imported: ${applied} records added to Time Log.`;
         statusEl.style.color = '#66bb6a';
         pendingAttendanceData = [];
+        // Refresh timelog employee selector
+        const empSel = document.getElementById('timelogEmpSelect');
+        empSel.innerHTML = '<option value="">All Employees</option>';
+        const allEmps = new Set();
+        timelogData.forEach(r => { if (r.employee) allEmps.add(r.employee); });
+        Array.from(allEmps).sort().forEach(emp => {
+            const opt = document.createElement('option');
+            opt.value = emp; opt.textContent = emp;
+            empSel.appendChild(opt);
+        });
     }
 
     function cancelAttendanceImport() {
