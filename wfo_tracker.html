@@ -125,6 +125,7 @@
             <button class="btn tab-btn active" id="tabSchedule" onclick="switchTab('schedule')" style="background:#5c6bc0;color:#fff;">📅 Schedule</button>
             <button class="btn tab-btn" id="tabSummary" onclick="switchTab('summary')" style="background:#7b1fa2;color:#fff;">📊 WFO Summary</button>
             <button class="btn tab-btn" id="tabOccupancy" onclick="switchTab('occupancy')" style="background:#00695c;color:#fff;">📈 Office Occupancy %</button>
+            <button class="btn tab-btn" id="tabTimelog" onclick="switchTab('timelog')" style="background:#1565c0;color:#fff;">🕐 Time Log</button>
             <button class="btn tab-btn" id="tabImport" style="display:none;background:#f57c00;color:#fff;" onclick="switchTab('upload')">📁 Import Schedule</button>
             <button class="btn tab-btn" id="tabAttendance" onclick="switchTab('attendance')" style="background:#d32f2f;color:#fff;">⏰ Import Attendance</button>
             <button class="btn tab-btn" id="btnCopySchedule" style="display:none;background:#00897b;color:#fff;" onclick="copyScheduleToClipboard()">📋 Export Schedule</button>
@@ -163,6 +164,27 @@
                 <div class="schedule-wrap">
                     <table id="occupancyTable" style="min-width:auto;border-spacing:0;"><tbody></tbody></table>
                 </div>
+            </div>
+        </div>
+
+        <!-- TIME LOG PANEL -->
+        <div id="panel-timelog" class="panel">
+            <div style="background:#16213e; border-radius:8px; padding:20px; margin-bottom:20px;">
+                <h3 style="color:#4fc3f7; margin-bottom:15px;">🕐 Employee Time Log</h3>
+                <div style="display:flex; gap:15px; margin-bottom:15px; flex-wrap:wrap; align-items:center;">
+                    <div class="month-selector" style="margin-bottom:0;">
+                        <select id="timelogMonthSelect" onchange="renderTimelog()" style="max-width:200px;"></select>
+                    </div>
+                    <div>
+                        <select id="timelogEmpSelect" onchange="renderTimelog()" style="max-width:250px;">
+                            <option value="">All Employees</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="schedule-wrap" style="max-height:600px; overflow-y:auto;">
+                    <table id="timelogTable" style="min-width:auto; font-size:0.8rem;"><tbody></tbody></table>
+                </div>
+                <p id="timelogEmpty" style="color:#aaa; margin-top:15px; display:none;">No attendance data imported yet. Use the "Import Attendance" tab to upload clock-in/out data.</p>
             </div>
         </div>
 
@@ -681,8 +703,10 @@
         else if (tab === 'occupancy') document.getElementById('tabOccupancy').classList.add('active');
         else if (tab === 'upload') document.getElementById('tabImport').classList.add('active');
         else if (tab === 'attendance') document.getElementById('tabAttendance').classList.add('active');
+        else if (tab === 'timelog') document.getElementById('tabTimelog').classList.add('active');
         if (tab === 'summary') renderSummary();
         if (tab === 'occupancy') renderOccupancy();
+        if (tab === 'timelog') renderTimelog();
     }
 
     // ============================================================
@@ -1440,9 +1464,169 @@
     }
 
     // ============================================================
+    // TIME LOG RENDERING
+    // ============================================================
+    function renderTimelog() {
+        // Populate month selector
+        const sel = document.getElementById('timelogMonthSelect');
+        if (sel.options.length === 0) {
+            const months = [];
+            for (let m = 0; m < 12; m++) {
+                months.push(new Date(2026, m, 1).toLocaleString('en', { month: 'long', year: 'numeric' }));
+            }
+            months.forEach(m => {
+                const opt = document.createElement('option');
+                opt.value = m; opt.textContent = m;
+                if (m === currentMonth) opt.selected = true;
+                sel.appendChild(opt);
+            });
+        }
+
+        // Populate employee selector
+        const empSel = document.getElementById('timelogEmpSelect');
+        if (empSel.options.length <= 1) {
+            const allEmps = new Set();
+            timelogData.forEach(rec => { if (rec.employee) allEmps.add(rec.employee); });
+            DEFAULT_EMPLOYEES.forEach(e => allEmps.add(e));
+            Array.from(allEmps).sort().forEach(emp => {
+                const opt = document.createElement('option');
+                opt.value = emp; opt.textContent = emp;
+                empSel.appendChild(opt);
+            });
+        }
+
+        const selectedMonth = sel.value || currentMonth;
+        const selectedEmp = empSel.value;
+
+        // Filter timelog data
+        const filtered = timelogData.filter(rec => {
+            if (!rec.date) return false;
+            const d = new Date(rec.date);
+            const monthKey = d.toLocaleString('en', { month: 'long', year: 'numeric' });
+            if (monthKey !== selectedMonth) return false;
+            if (selectedEmp && rec.employee !== selectedEmp) return false;
+            return true;
+        });
+
+        const emptyEl = document.getElementById('timelogEmpty');
+        if (timelogData.length === 0) {
+            emptyEl.style.display = 'block';
+            document.getElementById('timelogTable').innerHTML = '';
+            return;
+        }
+        emptyEl.style.display = 'none';
+
+        // Sort by date then employee
+        filtered.sort((a, b) => {
+            const da = new Date(a.date), db = new Date(b.date);
+            if (da - db !== 0) return da - db;
+            return (a.employee || '').localeCompare(b.employee || '');
+        });
+
+        let html = '<thead><tr><th style="text-align:left;">Employee</th><th>Date</th><th>Day</th><th>Clock In</th><th>Clock Out</th><th>Hours</th></tr></thead><tbody>';
+        filtered.forEach(rec => {
+            const d = new Date(rec.date);
+            const dateStr = d.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
+            const dayStr = d.toLocaleString('en', { weekday: 'short' });
+            const isWeekend = d.getDay() === 0 || d.getDay() === 6;
+
+            // Calculate hours worked
+            let hours = '-';
+            if (rec.clockIn && rec.clockOut && rec.clockIn !== 'Present' && rec.clockOut !== '') {
+                const inTime = parseTimeString(rec.clockIn);
+                const outTime = parseTimeString(rec.clockOut);
+                if (inTime !== null && outTime !== null) {
+                    let diff = (outTime - inTime) / 3600000;
+                    if (diff < 0) diff += 24;
+                    hours = diff.toFixed(1) + 'h';
+                }
+            }
+
+            html += `<tr class="${isWeekend ? 'weekend' : ''}" style="cursor:pointer;" onclick="highlightTimelogRow(this)">`;
+            html += `<td style="text-align:left; color:#eee; font-weight:600;">${rec.employee}</td>`;
+            html += `<td style="color:#90caf9;">${dateStr}</td>`;
+            html += `<td style="color:#aaa;">${dayStr}</td>`;
+            html += `<td style="color:#66bb6a; font-weight:bold;">${rec.clockIn || '-'}</td>`;
+            html += `<td style="color:#ef5350; font-weight:bold;">${rec.clockOut || '-'}</td>`;
+            html += `<td style="color:#4fc3f7;">${hours}</td>`;
+            html += '</tr>';
+        });
+
+        if (filtered.length === 0) {
+            html += '<tr><td colspan="6" style="color:#aaa; text-align:center; padding:20px;">No records for this month/employee.</td></tr>';
+        }
+
+        html += '</tbody>';
+        document.getElementById('timelogTable').innerHTML = html;
+    }
+
+    function highlightTimelogRow(row) {
+        const wasHighlighted = row.classList.contains('row-highlight');
+        document.querySelectorAll('#timelogTable tbody tr').forEach(r => r.classList.remove('row-highlight'));
+        if (!wasHighlighted) row.classList.add('row-highlight');
+    }
+
+    function parseTimeString(str) {
+        if (!str) return null;
+        // Try parsing common time formats: "9:00 AM", "09:00", "9:00:00", "14:30"
+        const cleaned = str.trim();
+        let match = cleaned.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)?$/i);
+        if (match) {
+            let h = parseInt(match[1]);
+            const m = parseInt(match[2]);
+            const ampm = match[4];
+            if (ampm) {
+                if (ampm.toUpperCase() === 'PM' && h < 12) h += 12;
+                if (ampm.toUpperCase() === 'AM' && h === 12) h = 0;
+            }
+            return new Date(2026, 0, 1, h, m, 0).getTime();
+        }
+        return null;
+    }
+
+    function saveTimelogData() {
+        // Save to Firebase
+        const serialized = timelogData.map(rec => ({
+            employee: rec.employee,
+            date: rec.date instanceof Date ? rec.date.toISOString().split('T')[0] : rec.date,
+            clockIn: rec.clockIn || '',
+            clockOut: rec.clockOut || ''
+        }));
+        db.ref('timelog').set(serialized);
+    }
+
+    // Load timelog from Firebase on startup
+    db.ref('timelog').on('value', function(snapshot) {
+        const data = snapshot.val();
+        if (!data || !Array.isArray(data)) return;
+        timelogData = data.map(rec => {
+            const parts = (rec.date || '').split('-');
+            let dateObj = null;
+            if (parts.length === 3) {
+                dateObj = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+            }
+            return { employee: rec.employee, date: dateObj, clockIn: rec.clockIn || '', clockOut: rec.clockOut || '' };
+        }).filter(rec => rec.date && !isNaN(rec.date.getTime()));
+        // Refresh timelog employee selector
+        const empSel = document.getElementById('timelogEmpSelect');
+        if (empSel) {
+            empSel.innerHTML = '<option value="">All Employees</option>';
+            const allEmps = new Set();
+            timelogData.forEach(rec => { if (rec.employee) allEmps.add(rec.employee); });
+            DEFAULT_EMPLOYEES.forEach(e => allEmps.add(e));
+            Array.from(allEmps).sort().forEach(emp => {
+                const opt = document.createElement('option');
+                opt.value = emp; opt.textContent = emp;
+                empSel.appendChild(opt);
+            });
+        }
+    });
+
+    // ============================================================
     // ATTENDANCE IMPORT (CSV/Excel from PayrollHero)
     // ============================================================
     let pendingAttendanceData = []; // { employee, date, clockIn }
+    let timelogData = []; // Stored attendance records: { employee, date, clockIn, clockOut }
 
     function handleAttendanceUpload(event) {
         const file = event.target.files[0];
@@ -1470,15 +1654,22 @@
                 return;
             }
 
-            // Auto-detect columns: find name col, date col, clock-in col
+            // Auto-detect columns: find name col, date col, clock-in col, clock-out col
             const header = rows[0].map(h => (h || '').toString().toLowerCase().trim());
-            let nameCol = -1, dateCol = -1, clockCol = -1;
+            let nameCol = -1, dateCol = -1, clockCol = -1, clockOutCol = -1;
 
             for (let i = 0; i < header.length; i++) {
                 const h = header[i];
                 if (nameCol === -1 && (h.includes('name') || h.includes('employee') || h.includes('staff') || h.includes('person'))) nameCol = i;
                 else if (dateCol === -1 && (h.includes('date') || h.includes('day') || h.includes('shift'))) dateCol = i;
-                else if (clockCol === -1 && (h.includes('clock') || h.includes('time in') || h.includes('in time') || h.includes('check in') || h.includes('punch') || h.includes('arrival'))) clockCol = i;
+                else if (clockCol === -1 && (h.includes('clock in') || h.includes('time in') || h.includes('in time') || h.includes('check in') || h.includes('punch in') || h.includes('arrival') || h === 'clock_in' || h === 'clockin')) clockCol = i;
+                else if (clockOutCol === -1 && (h.includes('clock out') || h.includes('time out') || h.includes('out time') || h.includes('check out') || h.includes('punch out') || h.includes('departure') || h === 'clock_out' || h === 'clockout')) clockOutCol = i;
+            }
+            // If only generic "clock" found, assign to clock-in
+            if (clockCol === -1) {
+                for (let i = 0; i < header.length; i++) {
+                    if (header[i].includes('clock') || header[i].includes('time') || header[i].includes('punch')) { clockCol = i; break; }
+                }
             }
 
             // Fallback: if no header match, try first few columns
@@ -1509,6 +1700,7 @@
                 let empName = (row[nameCol] || '').toString().trim();
                 const dateVal = parseFlexDate((row[dateCol] || '').toString().trim());
                 const clockIn = clockCol >= 0 ? (row[clockCol] || '').toString().trim() : 'Present';
+                const clockOut = clockOutCol >= 0 ? (row[clockOutCol] || '').toString().trim() : '';
 
                 if (!dateVal || isNaN(dateVal.getTime())) continue;
                 if (dateVal.getFullYear() !== 2026) continue;
@@ -1516,10 +1708,10 @@
                 // Match employee name
                 const resolvedName = resolveEmployeeName(empName, nameCorrections);
                 if (resolvedName) {
-                    pendingAttendanceData.push({ employee: resolvedName, date: dateVal, clockIn: clockIn, original: empName });
+                    pendingAttendanceData.push({ employee: resolvedName, date: dateVal, clockIn: clockIn, clockOut: clockOut, original: empName });
                     matched++;
                 } else {
-                    pendingAttendanceData.push({ employee: null, date: dateVal, clockIn: clockIn, original: empName });
+                    pendingAttendanceData.push({ employee: null, date: dateVal, clockIn: clockIn, clockOut: clockOut, original: empName });
                     unmatched++;
                 }
             }
@@ -1593,15 +1785,15 @@
     }
 
     function renderAttendancePreview() {
-        let html = '<thead><tr><th style="text-align:left;">Employee</th><th>Date</th><th>Clock In</th><th>Status</th></tr></thead><tbody>';
+        let html = '<thead><tr><th style="text-align:left;">Employee</th><th>Date</th><th>Clock In</th><th>Clock Out</th><th>Status</th></tr></thead><tbody>';
         const shown = pendingAttendanceData.slice(0, 100); // Show first 100
         shown.forEach(rec => {
             const dateStr = rec.date.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
             const status = rec.employee ? `<span style="color:#66bb6a;">✓ ${rec.employee}</span>` : `<span style="color:#ef5350;">✗ Unmatched: ${rec.original}</span>`;
-            html += `<tr><td style="text-align:left;">${rec.original}</td><td>${dateStr}</td><td>${rec.clockIn || '-'}</td><td>${status}</td></tr>`;
+            html += `<tr><td style="text-align:left;">${rec.original}</td><td>${dateStr}</td><td>${rec.clockIn || '-'}</td><td>${rec.clockOut || '-'}</td><td>${status}</td></tr>`;
         });
         if (pendingAttendanceData.length > 100) {
-            html += `<tr><td colspan="4" style="color:#aaa; text-align:center;">... and ${pendingAttendanceData.length - 100} more records</td></tr>`;
+            html += `<tr><td colspan="5" style="color:#aaa; text-align:center;">... and ${pendingAttendanceData.length - 100} more records</td></tr>`;
         }
         html += '</tbody>';
         document.getElementById('attendancePreviewTable').innerHTML = html;
@@ -1611,12 +1803,16 @@
         let applied = 0;
         pendingAttendanceData.forEach(rec => {
             if (!rec.employee || !rec.date) return;
+            timelogData.push({ employee: rec.employee, date: rec.date, clockIn: rec.clockIn || '', clockOut: rec.clockOut || '' });
             applied++;
         });
 
+        // Save timelog to Firebase
+        saveTimelogData();
+
         document.getElementById('attendancePreview').style.display = 'none';
         const statusEl = document.getElementById('attendanceStatus');
-        statusEl.textContent = `Attendance data loaded: ${applied} records. (Not linked to schedule tabs yet)`;
+        statusEl.textContent = `Attendance imported: ${applied} records added to Time Log.`;
         statusEl.style.color = '#66bb6a';
         pendingAttendanceData = [];
     }
