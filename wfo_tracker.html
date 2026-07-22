@@ -1572,10 +1572,10 @@
             }
             lastEmp = rec.employee;
 
-            html += `<tr class="${isWeekend ? 'weekend' : ''}" style="cursor:pointer;" onclick="highlightTimelogRow(this)">`;
+            html += `<tr style="cursor:pointer;" onclick="highlightTimelogRow(this)">`;
             html += `<td style="text-align:left; color:#eee; font-weight:${showEmpName ? 'bold' : 'normal'};">${showEmpName ? rec.employee : ''}</td>`;
             html += `<td style="color:#90caf9;">${dateStr}</td>`;
-            html += `<td style="color:#aaa;">${dayStr}</td>`;
+            html += `<td style="color:${isWeekend ? '#ffa726' : '#aaa'};">${dayStr}</td>`;
             html += `<td style="color:#66bb6a; font-weight:bold;">${rec.clockIn || '-'}</td>`;
             html += `<td style="color:#ef5350; font-weight:bold;">${rec.clockOut || '-'}</td>`;
             html += `<td style="color:#4fc3f7;">${hours}</td>`;
