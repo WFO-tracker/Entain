@@ -1497,13 +1497,15 @@
             sel.appendChild(opt);
         });
 
-        // Populate employee selector
+        // Populate employee selector - use standard employee names (same as Submit WFO Shift)
         const empSel = document.getElementById('timelogEmpSelect');
         const prevEmp = empSel.value;
         empSel.innerHTML = '<option value="">All Employees</option>';
-        const allEmps = new Set();
-        timelogData.forEach(rec => { if (rec.employee) allEmps.add(rec.employee); });
-        Array.from(allEmps).sort().forEach(emp => {
+        // Only show employees who have timelog data, using standard names
+        const empsWithData = new Set();
+        timelogData.forEach(rec => { if (rec.employee) empsWithData.add(rec.employee); });
+        // Show in same order as DEFAULT_EMPLOYEES
+        DEFAULT_EMPLOYEES.filter(emp => empsWithData.has(emp)).forEach(emp => {
             const opt = document.createElement('option');
             opt.value = emp; opt.textContent = emp;
             if (emp === prevEmp) opt.selected = true;
@@ -1997,19 +1999,23 @@
         timelogData = [];
         
         let applied = 0;
+        let skipped = 0;
         pendingAttendanceData.forEach(rec => {
             if (!rec.date) return;
-            // Import both matched AND unmatched (use original name if no match)
-            const empName = rec.employee || rec.original || 'Unknown';
-            timelogData.push({ employee: empName, date: rec.date, day: rec.day || '', clockIn: rec.clockIn || '', clockOut: rec.clockOut || '' });
-            applied++;
+            // Only import records with a matched employee name (skip unmatched)
+            if (rec.employee) {
+                timelogData.push({ employee: rec.employee, date: rec.date, day: rec.day || '', clockIn: rec.clockIn || '', clockOut: rec.clockOut || '' });
+                applied++;
+            } else {
+                skipped++;
+            }
         });
 
         // Save timelog to Firebase
         saveTimelogData();
 
         document.getElementById('attendancePreview').style.display = 'none';
-        document.getElementById('attendanceStatus').textContent = `✓ ${applied} records imported to Time Log.`;
+        document.getElementById('attendanceStatus').textContent = `✓ ${applied} records imported to Time Log.` + (skipped > 0 ? ` (${skipped} unmatched skipped)` : '');
         document.getElementById('attendanceStatus').style.color = '#66bb6a';
         pendingAttendanceData = [];
 
