@@ -183,7 +183,7 @@
                             <option value="">All Employees</option>
                         </select>
                     </div>
-                    <button class="btn btn-danger btn-sm" onclick="clearTimelog()" style="margin-left:auto;">🗑 Clear Time Log</button>
+                    <button class="btn btn-danger btn-sm" id="btnClearTimelog" onclick="clearTimelog()" style="display:none; margin-left:auto;">🗑 Clear Time Log</button>
                 </div>
                 <div class="schedule-wrap" style="max-height:600px; overflow-y:auto;">
                     <table id="timelogTable" style="min-width:auto; font-size:0.8rem;"><tbody></tbody></table>
@@ -2564,6 +2564,7 @@
             document.getElementById('btnCopySchedule').style.display = '';
             document.getElementById('tabImport').style.display = '';
             document.getElementById('tabAttendance').style.display = '';
+            document.getElementById('btnClearTimelog').style.display = '';
         }
     }
 
@@ -2578,6 +2579,7 @@
         document.getElementById('btnCopySchedule').style.display = 'none';
         document.getElementById('tabImport').style.display = 'none';
         document.getElementById('tabAttendance').style.display = 'none';
+        document.getElementById('btnClearTimelog').style.display = 'none';
     }
 
     function showChangePassword() {
@@ -2653,6 +2655,7 @@
                 document.getElementById('btnCopySchedule').style.display = '';
                 document.getElementById('tabImport').style.display = '';
                 document.getElementById('tabAttendance').style.display = '';
+                document.getElementById('btnClearTimelog').style.display = '';
             }
         }
     })();
