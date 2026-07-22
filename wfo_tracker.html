@@ -183,6 +183,7 @@
                             <option value="">All Employees</option>
                         </select>
                     </div>
+                    <button class="btn btn-danger btn-sm" onclick="clearTimelog()" style="margin-left:auto;">🗑 Clear Time Log</button>
                 </div>
                 <div class="schedule-wrap" style="max-height:600px; overflow-y:auto;">
                     <table id="timelogTable" style="min-width:auto; font-size:0.8rem;"><tbody></tbody></table>
@@ -1595,6 +1596,13 @@
         if (!wasHighlighted) row.classList.add('row-highlight');
     }
 
+    function clearTimelog() {
+        if (!confirm('Are you sure you want to clear all Time Log data? This cannot be undone.')) return;
+        timelogData = [];
+        saveTimelogData();
+        renderTimelog();
+    }
+
     function parseTimeString(str) {
         if (!str) return null;
         // Try parsing common time formats: "9:00 AM", "09:00", "9:00:00", "14:30"
@@ -2070,22 +2078,16 @@
     }
 
     function confirmAttendanceImport() {
+        // Replace all timelog data with fresh import (prevents duplicates from re-imports)
+        timelogData = [];
+        
         let applied = 0;
         let skipped = 0;
         pendingAttendanceData.forEach(rec => {
             if (!rec.date) return;
-            // Only import records with a matched employee name (skip unmatched)
             if (rec.employee) {
-                // Check if this exact record already exists (avoid duplicates)
-                const dateStr = rec.date instanceof Date ? rec.date.toISOString().split('T')[0] : rec.date;
-                const exists = timelogData.some(existing => {
-                    const existDate = existing.date instanceof Date ? existing.date.toISOString().split('T')[0] : existing.date;
-                    return existing.employee === rec.employee && existDate === dateStr;
-                });
-                if (!exists) {
-                    timelogData.push({ employee: rec.employee, date: rec.date, day: rec.day || '', clockIn: rec.clockIn || '', clockOut: rec.clockOut || '' });
-                    applied++;
-                }
+                timelogData.push({ employee: rec.employee, date: rec.date, day: rec.day || '', clockIn: rec.clockIn || '', clockOut: rec.clockOut || '' });
+                applied++;
             } else {
                 skipped++;
             }
@@ -2095,7 +2097,7 @@
         saveTimelogData();
 
         document.getElementById('attendancePreview').style.display = 'none';
-        document.getElementById('attendanceStatus').textContent = `✓ ${applied} new records added to Time Log.` + (skipped > 0 ? ` (${skipped} unmatched skipped)` : '');
+        document.getElementById('attendanceStatus').textContent = `✓ ${applied} records imported to Time Log (replaced previous data).` + (skipped > 0 ? ` (${skipped} unmatched skipped)` : '');
         document.getElementById('attendanceStatus').style.color = '#66bb6a';
         pendingAttendanceData = [];
     }
