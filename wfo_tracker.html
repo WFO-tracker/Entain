@@ -1654,22 +1654,24 @@
                 return;
             }
 
-            // Auto-detect columns: find name col, date col, clock-in col, clock-out col
+            // Auto-detect columns: find name col, date col, actual clock-in col, actual clock-out col
             const header = rows[0].map(h => (h || '').toString().toLowerCase().trim());
             let nameCol = -1, dateCol = -1, clockCol = -1, clockOutCol = -1;
 
+            // First pass: look for "actual clock in" / "actual clock out" specifically
+            for (let i = 0; i < header.length; i++) {
+                const h = header[i];
+                if (clockCol === -1 && (h.includes('actual clock in') || h.includes('actual clockin') || h.includes('actual_clock_in') || h === 'actual clock-in')) clockCol = i;
+                if (clockOutCol === -1 && (h.includes('actual clock out') || h.includes('actual clockout') || h.includes('actual_clock_out') || h === 'actual clock-out')) clockOutCol = i;
+            }
+
+            // Second pass: find name and date, and fallback clock columns
             for (let i = 0; i < header.length; i++) {
                 const h = header[i];
                 if (nameCol === -1 && (h.includes('name') || h.includes('employee') || h.includes('staff') || h.includes('person'))) nameCol = i;
                 else if (dateCol === -1 && (h.includes('date') || h.includes('day') || h.includes('shift'))) dateCol = i;
                 else if (clockCol === -1 && (h.includes('clock in') || h.includes('time in') || h.includes('in time') || h.includes('check in') || h.includes('punch in') || h.includes('arrival') || h === 'clock_in' || h === 'clockin')) clockCol = i;
                 else if (clockOutCol === -1 && (h.includes('clock out') || h.includes('time out') || h.includes('out time') || h.includes('check out') || h.includes('punch out') || h.includes('departure') || h === 'clock_out' || h === 'clockout')) clockOutCol = i;
-            }
-            // If only generic "clock" found, assign to clock-in
-            if (clockCol === -1) {
-                for (let i = 0; i < header.length; i++) {
-                    if (header[i].includes('clock') || header[i].includes('time') || header[i].includes('punch')) { clockCol = i; break; }
-                }
             }
 
             // Fallback: if no header match, try first few columns
@@ -1733,54 +1735,135 @@
 
     function resolveEmployeeName(name, corrections) {
         if (!name) return null;
+        const trimmed = name.trim();
+        
         // Direct match in schedule employees
         for (const monthKey of Object.keys(scheduleData)) {
-            if (scheduleData[monthKey].employees.includes(name)) return name;
+            if (scheduleData[monthKey].employees.includes(trimmed)) return trimmed;
         }
-        // Try corrections
-        if (corrections[name]) return corrections[name];
-        if (corrections[name.toLowerCase()]) return corrections[name.toLowerCase()];
-        // Try first name
-        const firstName = name.split(' ')[0];
-        if (corrections[firstName]) return corrections[firstName];
-        // Try last name, first name format (e.g., "Curtis, Joshua")
-        if (name.includes(',')) {
-            const parts = name.split(',').map(s => s.trim());
+        // Try corrections (exact, then lowercase)
+        if (corrections[trimmed]) return corrections[trimmed];
+        if (corrections[trimmed.toLowerCase()]) return corrections[trimmed.toLowerCase()];
+        
+        // Try "LastName, FirstName" format (with comma)
+        if (trimmed.includes(',')) {
+            const parts = trimmed.split(',').map(s => s.trim());
             const flipped = parts[1] + ' ' + parts[0];
             if (corrections[flipped]) return corrections[flipped];
             if (corrections[flipped.toLowerCase()]) return corrections[flipped.toLowerCase()];
+            // Direct match flipped
+            for (const monthKey of Object.keys(scheduleData)) {
+                if (scheduleData[monthKey].employees.includes(flipped)) return flipped;
+            }
             // Try just first name from flipped
             if (corrections[parts[1]]) return corrections[parts[1]];
         }
+        
+        // Try "LastName FirstName" format (without comma) - flip word order
+        const words = trimmed.split(/\s+/);
+        if (words.length >= 2) {
+            // Try last word as first name, rest as last name: "Dela Cruz Melvin" -> "Melvin Dela Cruz"
+            const lastWord = words[words.length - 1];
+            const restWords = words.slice(0, -1).join(' ');
+            const flippedNoComma = lastWord + ' ' + restWords;
+            if (corrections[flippedNoComma]) return corrections[flippedNoComma];
+            if (corrections[flippedNoComma.toLowerCase()]) return corrections[flippedNoComma.toLowerCase()];
+            for (const monthKey of Object.keys(scheduleData)) {
+                if (scheduleData[monthKey].employees.includes(flippedNoComma)) return flippedNoComma;
+            }
+            
+            // Also try first word as first name (normal order): "Melvin Del Cruz" matches directly
+            const firstWord = words[0];
+            if (corrections[firstWord]) return corrections[firstWord];
+            
+            // Try "FirstName LastName" where first word is last name: "Paco Roman" -> "Roman Paco"
+            if (words.length === 2) {
+                const swapped = words[1] + ' ' + words[0];
+                if (corrections[swapped]) return corrections[swapped];
+                if (corrections[swapped.toLowerCase()]) return corrections[swapped.toLowerCase()];
+                for (const monthKey of Object.keys(scheduleData)) {
+                    if (scheduleData[monthKey].employees.includes(swapped)) return swapped;
+                }
+            }
+        }
+        
+        // Try first name only
+        const firstName = words[0];
+        if (corrections[firstName]) return corrections[firstName];
+        
+        // Try last name only (second word or last word)
+        if (words.length >= 2) {
+            const lastName = words[words.length - 1];
+            if (corrections[lastName]) return corrections[lastName];
+        }
+        
         return null;
     }
 
     function getNameCorrections() {
         return {
-            "Joshua": "Joshua Curtis", "Josh": "Joshua Curtis", "joshua curtis": "Joshua Curtis", "joshua": "Joshua Curtis", "Curtis, Joshua": "Joshua Curtis",
-            "Nico": "Nico Dabon", "nico dabon": "Nico Dabon", "Dabon, Nico": "Nico Dabon",
-            "Carlo": "Carlo Santia", "carlo santia": "Carlo Santia", "Santia, Carlo": "Carlo Santia",
-            "RK": "RK Malabrigo", "rk malabrigo": "RK Malabrigo", "Malabrigo, RK": "RK Malabrigo",
-            "Alfred": "Alfred Alegria", "alfred alegria": "Alfred Alegria", "Alegria, Alfred": "Alfred Alegria",
-            "Mikko": "Mikko Dumdum", "mikko dumdum": "Mikko Dumdum", "Dumdum, Mikko": "Mikko Dumdum",
-            "Chester": "Chester Rabino", "chester rabino": "Chester Rabino", "Rabino, Chester": "Chester Rabino",
-            "Alexander": "Alexander Tan", "alexander tan": "Alexander Tan", "Tan, Alexander": "Alexander Tan",
-            "Roman": "Roman Paco", "roman paco": "Roman Paco", "Paco, Roman": "Roman Paco",
-            "Alvin": "Alvin Ching", "alvin ching": "Alvin Ching", "Ching, Alvin": "Alvin Ching",
-            "Bryan": "Bryan Lustria", "bryan lustria": "Bryan Lustria", "Lustria, Bryan": "Bryan Lustria",
-            "Kurt": "Kurt Santos", "kurt santos": "Kurt Santos", "Santos, Kurt": "Kurt Santos",
-            "Angelo": "Angelo So", "angelo so": "Angelo So", "So, Angelo": "Angelo So",
-            "John": "John Subong", "john subong": "John Subong", "Subong, John": "John Subong",
-            "Ruth": "Ruth Gabaldon", "ruth gabaldon": "Ruth Gabaldon", "Gabaldon, Ruth": "Ruth Gabaldon",
-            "Dana": "Dana Dela Cruz", "dana dela cruz": "Dana Dela Cruz", "Dela Cruz, Dana": "Dana Dela Cruz",
-            "Patrick": "Patrick Uy", "patrick uy": "Patrick Uy", "Uy, Patrick": "Patrick Uy",
-            "Justin": "Justin Quinn", "justin quinn": "Justin Quinn", "Quinn, Justin": "Justin Quinn",
-            "Michael": "Michael Sy", "michael sy": "Michael Sy", "Sy, Michael": "Michael Sy",
-            "RayAnn": "RayAnn Magpantay", "rayann magpantay": "RayAnn Magpantay", "Magpantay, RayAnn": "RayAnn Magpantay",
-            "Rayner": "Rayner Salvador", "rayner salvador": "Rayner Salvador", "Salvador, Rayner": "Rayner Salvador",
-            "Cris": "Cris Aguda", "cris aguda": "Cris Aguda", "Aguda, Cris": "Cris Aguda",
-            "Itzak": "Itzak Dekire", "itzak dekire": "Itzak Dekire", "Dekire, Itzak": "Itzak Dekire",
-            "Melvin": "Melvin Del Cruz", "melvin del cruz": "Melvin Del Cruz", "Del Cruz, Melvin": "Melvin Del Cruz"
+            // First name matches
+            "Joshua": "Joshua Curtis", "Josh": "Joshua Curtis", "Nico": "Nico Dabon", "Carlo": "Carlo Santia",
+            "RK": "RK Malabrigo", "Alfred": "Alfred Alegria", "Mikko": "Mikko Dumdum", "Chester": "Chester Rabino",
+            "Alexander": "Alexander Tan", "Roman": "Roman Paco", "Alvin": "Alvin Ching", "Bryan": "Bryan Lustria",
+            "Kurt": "Kurt Santos", "Angelo": "Angelo So", "John": "John Subong", "Ruth": "Ruth Gabaldon",
+            "Dana": "Dana Dela Cruz", "Patrick": "Patrick Uy", "Justin": "Justin Quinn", "Michael": "Michael Sy",
+            "RayAnn": "RayAnn Magpantay", "Rayner": "Rayner Salvador", "Cris": "Cris Aguda",
+            "Itzak": "Itzak Dekire", "Melvin": "Melvin Del Cruz",
+            // Full name (normal order)
+            "Joshua Curtis": "Joshua Curtis", "Nico Dabon": "Nico Dabon", "Carlo Santia": "Carlo Santia",
+            "RK Malabrigo": "RK Malabrigo", "Alfred Alegria": "Alfred Alegria", "Mikko Dumdum": "Mikko Dumdum",
+            "Chester Rabino": "Chester Rabino", "Alexander Tan": "Alexander Tan", "Roman Paco": "Roman Paco",
+            "Alvin Ching": "Alvin Ching", "Bryan Lustria": "Bryan Lustria", "Kurt Santos": "Kurt Santos",
+            "Angelo So": "Angelo So", "John Subong": "John Subong", "Ruth Gabaldon": "Ruth Gabaldon",
+            "Dana Dela Cruz": "Dana Dela Cruz", "Patrick Uy": "Patrick Uy", "Justin Quinn": "Justin Quinn",
+            "Michael Sy": "Michael Sy", "RayAnn Magpantay": "RayAnn Magpantay", "Rayner Salvador": "Rayner Salvador",
+            "Cris Aguda": "Cris Aguda", "Itzak Dekire": "Itzak Dekire", "Melvin Del Cruz": "Melvin Del Cruz",
+            // Lowercase full name
+            "joshua curtis": "Joshua Curtis", "nico dabon": "Nico Dabon", "carlo santia": "Carlo Santia",
+            "rk malabrigo": "RK Malabrigo", "alfred alegria": "Alfred Alegria", "mikko dumdum": "Mikko Dumdum",
+            "chester rabino": "Chester Rabino", "alexander tan": "Alexander Tan", "roman paco": "Roman Paco",
+            "alvin ching": "Alvin Ching", "bryan lustria": "Bryan Lustria", "kurt santos": "Kurt Santos",
+            "angelo so": "Angelo So", "john subong": "John Subong", "ruth gabaldon": "Ruth Gabaldon",
+            "dana dela cruz": "Dana Dela Cruz", "patrick uy": "Patrick Uy", "justin quinn": "Justin Quinn",
+            "michael sy": "Michael Sy", "rayann magpantay": "RayAnn Magpantay", "rayner salvador": "Rayner Salvador",
+            "cris aguda": "Cris Aguda", "itzak dekire": "Itzak Dekire", "melvin del cruz": "Melvin Del Cruz",
+            // Last, First (with comma)
+            "Curtis, Joshua": "Joshua Curtis", "Dabon, Nico": "Nico Dabon", "Santia, Carlo": "Carlo Santia",
+            "Malabrigo, RK": "RK Malabrigo", "Alegria, Alfred": "Alfred Alegria", "Dumdum, Mikko": "Mikko Dumdum",
+            "Rabino, Chester": "Chester Rabino", "Tan, Alexander": "Alexander Tan", "Paco, Roman": "Roman Paco",
+            "Ching, Alvin": "Alvin Ching", "Lustria, Bryan": "Bryan Lustria", "Santos, Kurt": "Kurt Santos",
+            "So, Angelo": "Angelo So", "Subong, John": "John Subong", "Gabaldon, Ruth": "Ruth Gabaldon",
+            "Dela Cruz, Dana": "Dana Dela Cruz", "Uy, Patrick": "Patrick Uy", "Quinn, Justin": "Justin Quinn",
+            "Sy, Michael": "Michael Sy", "Magpantay, RayAnn": "RayAnn Magpantay", "Salvador, Rayner": "Rayner Salvador",
+            "Aguda, Cris": "Cris Aguda", "Dekire, Itzak": "Itzak Dekire", "Del Cruz, Melvin": "Melvin Del Cruz",
+            // Last First (without comma - last name first)
+            "Curtis Joshua": "Joshua Curtis", "Dabon Nico": "Nico Dabon", "Santia Carlo": "Carlo Santia",
+            "Malabrigo RK": "RK Malabrigo", "Alegria Alfred": "Alfred Alegria", "Dumdum Mikko": "Mikko Dumdum",
+            "Rabino Chester": "Chester Rabino", "Tan Alexander": "Alexander Tan", "Paco Roman": "Roman Paco",
+            "Ching Alvin": "Alvin Ching", "Lustria Bryan": "Bryan Lustria", "Santos Kurt": "Kurt Santos",
+            "So Angelo": "Angelo So", "Subong John": "John Subong", "Gabaldon Ruth": "Ruth Gabaldon",
+            "Dela Cruz Dana": "Dana Dela Cruz", "Uy Patrick": "Patrick Uy", "Quinn Justin": "Justin Quinn",
+            "Sy Michael": "Michael Sy", "Magpantay RayAnn": "RayAnn Magpantay", "Salvador Rayner": "Rayner Salvador",
+            "Aguda Cris": "Cris Aguda", "Dekire Itzak": "Itzak Dekire", "Del Cruz Melvin": "Melvin Del Cruz",
+            // Lowercase last first (without comma)
+            "curtis joshua": "Joshua Curtis", "dabon nico": "Nico Dabon", "santia carlo": "Carlo Santia",
+            "malabrigo rk": "RK Malabrigo", "alegria alfred": "Alfred Alegria", "dumdum mikko": "Mikko Dumdum",
+            "rabino chester": "Chester Rabino", "tan alexander": "Alexander Tan", "paco roman": "Roman Paco",
+            "ching alvin": "Alvin Ching", "lustria bryan": "Bryan Lustria", "santos kurt": "Kurt Santos",
+            "so angelo": "Angelo So", "subong john": "John Subong", "gabaldon ruth": "Ruth Gabaldon",
+            "dela cruz dana": "Dana Dela Cruz", "uy patrick": "Patrick Uy", "quinn justin": "Justin Quinn",
+            "sy michael": "Michael Sy", "magpantay rayann": "RayAnn Magpantay", "salvador rayner": "Rayner Salvador",
+            "aguda cris": "Cris Aguda", "dekire itzak": "Itzak Dekire", "del cruz melvin": "Melvin Del Cruz",
+            // Last name only
+            "Curtis": "Joshua Curtis", "Dabon": "Nico Dabon", "Santia": "Carlo Santia",
+            "Malabrigo": "RK Malabrigo", "Alegria": "Alfred Alegria", "Dumdum": "Mikko Dumdum",
+            "Rabino": "Chester Rabino", "Tan": "Alexander Tan", "Paco": "Roman Paco",
+            "Ching": "Alvin Ching", "Lustria": "Bryan Lustria", "Santos": "Kurt Santos",
+            "Subong": "John Subong", "Gabaldon": "Ruth Gabaldon",
+            "Uy": "Patrick Uy", "Quinn": "Justin Quinn",
+            "Magpantay": "RayAnn Magpantay", "Salvador": "Rayner Salvador",
+            "Aguda": "Cris Aguda", "Dekire": "Itzak Dekire"
         };
     }
 
