@@ -1728,6 +1728,24 @@
                 }
             }
 
+            // Verify the name column has actual names (not IDs/numbers) by checking first data row
+            if (nameCol >= 0) {
+                const sampleName = (rows[headerRowIdx + 1] || [])[nameCol];
+                if (sampleName && /^\d+$/.test(sampleName.toString().trim())) {
+                    // This column has numbers, not names — find the real name column
+                    // Look for the next column after nameCol that has text with letters
+                    let foundReal = false;
+                    for (let i = nameCol + 1; i < header.length; i++) {
+                        const sampleVal = (rows[headerRowIdx + 1] || [])[i];
+                        if (sampleVal && sampleVal.toString().trim().length > 2 && /[a-zA-Z]/.test(sampleVal.toString())) {
+                            nameCol = i;
+                            foundReal = true;
+                            break;
+                        }
+                    }
+                }
+            }
+
             // Fallback for clock columns
             if (clockCol === -1 || clockOutCol === -1) {
                 for (let i = 0; i < header.length; i++) {
