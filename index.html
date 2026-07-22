@@ -118,7 +118,7 @@
         <h1>WFO Tracker <span id="loggedInUser" style="font-size:0.8rem; color:#aaa;"></span></h1>
         <div class="actions">
             <button class="btn btn-primary" onclick="showRequestModal()">Submit WFO Shift</button>
-            <button class="btn btn-danger" id="btnRemoveWFO" style="display:none;" onclick="showRemoveModal()">Remove WFO</button>
+            <button class="btn btn-danger" id="btnRemoveWFO" onclick="showRemoveModal()">Remove WFO</button>
             <button class="btn btn-sm" style="background:#333;color:#aaa;" onclick="doLogout()">Logout</button>
         </div>
     </div>
@@ -2522,7 +2522,6 @@
         // Show admin buttons only for authorized users
         const admins = ['Joshua Curtis', 'Patrick Uy', 'Bryan Lustria', 'Roman Paco'];
         if (admins.includes(matchedEmp)) {
-            document.getElementById('btnRemoveWFO').style.display = '';
             document.getElementById('btnCopySchedule').style.display = '';
             document.getElementById('tabImport').style.display = '';
             document.getElementById('tabAttendance').style.display = '';
@@ -2537,7 +2536,6 @@
         document.getElementById('loginUser').value = '';
         document.getElementById('loginPass').value = '';
         // Hide admin buttons
-        document.getElementById('btnRemoveWFO').style.display = 'none';
         document.getElementById('btnCopySchedule').style.display = 'none';
         document.getElementById('tabImport').style.display = 'none';
         document.getElementById('tabAttendance').style.display = 'none';
@@ -2613,7 +2611,6 @@
             document.getElementById('loggedInUser').textContent = '| ' + savedUser;
             const admins = ['Joshua Curtis', 'Patrick Uy', 'Bryan Lustria', 'Roman Paco'];
             if (admins.includes(savedUser)) {
-                document.getElementById('btnRemoveWFO').style.display = '';
                 document.getElementById('btnCopySchedule').style.display = '';
                 document.getElementById('tabImport').style.display = '';
                 document.getElementById('tabAttendance').style.display = '';
