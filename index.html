@@ -1854,6 +1854,10 @@
                 for (const monthKey of Object.keys(scheduleData)) {
                     if (scheduleData[monthKey].employees.includes(flipped)) return flipped;
                 }
+                // Try "Last, First" format as key directly
+                const lastFirst = parts[0] + ', ' + parts[1];
+                if (corrections[lastFirst]) return corrections[lastFirst];
+                if (corrections[lastFirst.toLowerCase()]) return corrections[lastFirst.toLowerCase()];
                 // Try just first name (second part)
                 if (corrections[parts[1]]) return corrections[parts[1]];
                 if (corrections[parts[1].toLowerCase()]) return corrections[parts[1].toLowerCase()];
@@ -1866,6 +1870,10 @@
                 const fullFlipped = parts[1] + ' ' + parts[2] + ' ' + parts[0];
                 if (corrections[fullFlipped]) return corrections[fullFlipped];
                 if (corrections[fullFlipped.toLowerCase()]) return corrections[fullFlipped.toLowerCase()];
+                // Also try just first + last (skip middle)
+                const firstLast = parts[1] + ' ' + parts[0];
+                if (corrections[firstLast]) return corrections[firstLast];
+                if (corrections[firstLast.toLowerCase()]) return corrections[firstLast.toLowerCase()];
             }
         }
         
@@ -1975,7 +1983,29 @@
             "Subong": "John Subong", "Gabaldon": "Ruth Gabaldon",
             "Uy": "Patrick Uy", "Quinn": "Justin Quinn",
             "Magpantay": "RayAnn Magpantay", "Salvador": "Rayner Salvador",
-            "Aguda": "Cris Aguda", "Dekire": "Itzak Dekire"
+            "Aguda": "Cris Aguda", "Dekire": "Itzak Dekire",
+            // Additional PayrollHero format variations (with middle names)
+            "Aguda, Cristopher": "Cris Aguda", "Aguda, Cris": "Cris Aguda",
+            "Rabino, Chester": "Chester Rabino", "rabino, chester": "Chester Rabino",
+            "Quinn, Justin": "Justin Quinn", "quinn, justin": "Justin Quinn",
+            "Dela Cruz, Dana": "Dana Dela Cruz", "dela cruz, dana": "Dana Dela Cruz",
+            "De La Cruz, Dana": "Dana Dela Cruz", "de la cruz, dana": "Dana Dela Cruz",
+            "DeLa Cruz, Dana": "Dana Dela Cruz",
+            "Del Cruz, Dana": "Dana Dela Cruz",
+            "Dana Marie": "Dana Dela Cruz", "Dana": "Dana Dela Cruz",
+            "Cristopher De Dios": "Cris Aguda",
+            // Variations with middle names stripped
+            "Justin Patrick": "Justin Quinn", "Chester James": "Chester Rabino",
+            // Additional first name variations
+            "Rayann": "RayAnn Magpantay", "Ray Ann": "RayAnn Magpantay",
+            "joshua": "Joshua Curtis", "nico": "Nico Dabon", "carlo": "Carlo Santia",
+            "rk": "RK Malabrigo", "alfred": "Alfred Alegria", "mikko": "Mikko Dumdum",
+            "chester": "Chester Rabino", "alexander": "Alexander Tan", "roman": "Roman Paco",
+            "alvin": "Alvin Ching", "bryan": "Bryan Lustria", "kurt": "Kurt Santos",
+            "angelo": "Angelo So", "john": "John Subong", "ruth": "Ruth Gabaldon",
+            "dana": "Dana Dela Cruz", "patrick": "Patrick Uy", "justin": "Justin Quinn",
+            "michael": "Michael Sy", "rayner": "Rayner Salvador", "cris": "Cris Aguda",
+            "cristopher": "Cris Aguda", "itzak": "Itzak Dekire", "melvin": "Melvin Del Cruz"
         };
     }
 
