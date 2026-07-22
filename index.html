@@ -1765,7 +1765,6 @@
                 const dayVal = dayCol >= 0 ? (row[dayCol] || '').toString().trim() : (dateVal ? dateVal.toLocaleString('en', { weekday: 'long' }) : '');
 
                 if (!dateVal || isNaN(dateVal.getTime())) continue;
-                if (dateVal.getFullYear() < 2026) continue;
 
                 // Extract time only from datetime format like "1/5/2026 5:41"
                 const clockIn = extractTimeFromDateTime(rawClockIn);
@@ -1783,7 +1782,13 @@
             }
 
             if (pendingAttendanceData.length === 0) {
-                statusEl.textContent = 'No records with Actual Clock In found. Detected: Name col=' + nameCol + ', Date col=' + dateCol + ', ClockIn col=' + clockCol + ', Rows=' + (rows.length - headerRowIdx - 1);
+                // Show debug info about what was found
+                let sampleRow = rows[headerRowIdx + 1] || [];
+                let sampleInfo = 'Sample row: ';
+                sampleInfo += 'Name="' + (sampleRow[nameCol] || '') + '", ';
+                sampleInfo += 'Date="' + (sampleRow[dateCol] || '') + '", ';
+                sampleInfo += 'ClockIn="' + (clockCol >= 0 ? (sampleRow[clockCol] || '') : 'N/A') + '"';
+                statusEl.textContent = 'No records found. Cols: Name=' + nameCol + ', Date=' + dateCol + ', ClockIn=' + clockCol + ', ClockOut=' + clockOutCol + '. Header row=' + headerRowIdx + '. ' + sampleInfo;
                 statusEl.style.color = '#ef5350';
                 return;
             }
@@ -1965,8 +1970,10 @@
     function confirmAttendanceImport() {
         let applied = 0;
         pendingAttendanceData.forEach(rec => {
-            if (!rec.employee || !rec.date) return;
-            timelogData.push({ employee: rec.employee, date: rec.date, day: rec.day || '', clockIn: rec.clockIn || '', clockOut: rec.clockOut || '' });
+            if (!rec.date) return;
+            // Import both matched AND unmatched (use original name if no match)
+            const empName = rec.employee || rec.original || 'Unknown';
+            timelogData.push({ employee: empName, date: rec.date, day: rec.day || '', clockIn: rec.clockIn || '', clockOut: rec.clockOut || '' });
             applied++;
         });
 
