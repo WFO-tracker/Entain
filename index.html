@@ -2053,9 +2053,6 @@
         document.getElementById('attendanceStatus').textContent = `✓ ${applied} records imported to Time Log.` + (skipped > 0 ? ` (${skipped} unmatched skipped)` : '');
         document.getElementById('attendanceStatus').style.color = '#66bb6a';
         pendingAttendanceData = [];
-
-        // Switch to Time Log tab and render
-        switchTab('timelog');
     }
 
     function cancelAttendanceImport() {
