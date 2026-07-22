@@ -1732,14 +1732,13 @@
             if (nameCol >= 0) {
                 const sampleName = (rows[headerRowIdx + 1] || [])[nameCol];
                 if (sampleName && /^\d+$/.test(sampleName.toString().trim())) {
-                    // This column has numbers, not names — find the real name column
-                    // Look for the next column after nameCol that has text with letters
-                    let foundReal = false;
-                    for (let i = nameCol + 1; i < header.length; i++) {
+                    // This column has numbers (employee IDs), not names
+                    // Scan ALL subsequent columns for one that has text with letters and commas (name format)
+                    for (let i = 0; i < header.length; i++) {
+                        if (i === nameCol || i === dateCol || i === dayCol || i === clockCol || i === clockOutCol) continue;
                         const sampleVal = (rows[headerRowIdx + 1] || [])[i];
-                        if (sampleVal && sampleVal.toString().trim().length > 2 && /[a-zA-Z]/.test(sampleVal.toString())) {
+                        if (sampleVal && sampleVal.toString().trim().length > 2 && /[a-zA-Z]/.test(sampleVal.toString()) && !isDateLike(sampleVal.toString())) {
                             nameCol = i;
-                            foundReal = true;
                             break;
                         }
                     }
@@ -1994,6 +1993,9 @@
     }
 
     function confirmAttendanceImport() {
+        // Clear old timelog data before importing fresh
+        timelogData = [];
+        
         let applied = 0;
         pendingAttendanceData.forEach(rec => {
             if (!rec.date) return;
